@@ -1,0 +1,636 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================
+// Authentication and user identity
+// ============================================================
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  JUDGE
+  SPECTATOR
+  ADMIN
+}
+
+enum RulesetStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum CompetitionStatus {
+  DRAFT
+  READY
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum CompetitionStageStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum AdvancementStatus {
+  QUALIFIED
+  ADVANCED
+  ELIMINATED
+  WAITLISTED
+}
+
+enum Locale {
+  ZH_CN
+  EN_US
+}
+
+model User {
+  id               String       @id @default(cuid())
+  name             String?
+  email            String       @unique
+  emailVerified    DateTime?
+  image            String?
+  passwordHash     String?
+  role             UserRole     @default(STUDENT)
+  studentId        String?      @unique
+  locale           Locale       @default(ZH_CN)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  accounts         Account[]
+  sessions         Session[]
+  teamMembers      TeamMember[]
+  createdSemesters Semester[]   @relation("SemesterCreator")
+  judgeScores      JudgeScore[] @relation("JudgeUserScores")
+  createdCompetitions Competition[] @relation("CompetitionCreator")
+  createdAnnouncements Announcement[] @relation("AnnouncementCreator")
+
+  @@index([role])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================================
+// Teaching structure: semester -> class -> team -> members
+// ============================================================
+
+enum SemesterStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+model Semester {
+  id          String         @id @default(cuid())
+  name        String
+  code        String         @unique
+  creatorId   String
+  status      SemesterStatus @default(DRAFT)
+  startDate   DateTime?
+  endDate     DateTime?
+  description String?        @db.Text
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  creator     User           @relation("SemesterCreator", fields: [creatorId], references: [id])
+  classes     Class[]
+  competitions Competition[]
+
+  @@index([creatorId])
+  @@map("semesters")
+}
+
+enum ClassStatus {
+  SETUP
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Class {
+  id            String       @id @default(cuid())
+  semesterId    String
+  name          String
+  joinCode      String       @unique @default(cuid())
+  maxTeams      Int          @default(8)
+  maxTeamSize   Int          @default(6)
+  minTeamSize   Int          @default(3)
+  totalRooms    Int          @default(500)
+  currentRound  Int          @default(0)
+  maxRounds     Int          @default(12)
+  status        ClassStatus  @default(SETUP)
+  // JSON keeps the default simulation parameters overrideable per class.
+  simParameters Json         @default("{}")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  semester      Semester     @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  teams         Team[]
+  // Keep a direct relation to team members so later roster/admin screens can
+  // query class-wide enrollments without traversing teams first.
+  teamMembers   TeamMember[]
+  rounds        Round[]
+  advancementTargets Advancement[] @relation("AdvancementTargetClass")
+
+  @@index([semesterId])
+  @@index([status])
+  @@map("classes")
+}
+
+model Team {
+  id         String        @id @default(cuid())
+  classId    String
+  name       String
+  hotelName  String
+  color      String        @default("#DC2626")
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  class      Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  members    TeamMember[]
+  decisions  Decision[]
+  results    RoundResult[]
+  hotelState HotelState?
+  advancements Advancement[]
+
+  @@unique([classId, name])
+  @@map("teams")
+}
+
+enum TeamRole {
+  LEADER
+  MARKETING_MANAGER
+  OPERATIONS_MANAGER
+  FINANCE_MANAGER
+  REVENUE_MANAGER
+  MEMBER
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  // This denormalized class reference enforces the business rule that one
+  // student may only belong to one team within the same class. It also makes
+  // RLS and class roster queries much simpler in later stages.
+  classId  String
+  userId   String
+  role     TeamRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  class    Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@unique([classId, userId])
+  @@index([classId])
+  @@map("team_members")
+}
+
+// ============================================================
+// Cross-round hotel state
+// ============================================================
+
+model HotelState {
+  id                 String @id @default(cuid())
+  teamId             String @unique
+  // Financial state
+  cashBalance        Float  @default(50000000)
+  totalDebt          Float  @default(200000000)
+  debtInterestRate   Float  @default(0.045)
+  accumulatedProfit  Float  @default(0)
+  // Asset and quality state
+  propertyCondition  Float  @default(85)
+  furnitureCondition Float  @default(90)
+  technologyLevel    Float  @default(70)
+  // Brand and guest perception
+  brandReputation    Float  @default(50)
+  onlineRating       Float  @default(4.0)
+  guestSatisfaction  Float  @default(75)
+  // ESG
+  esgScore           Float  @default(50)
+  energyEfficiency   Float  @default(60)
+  // Staff
+  staffMorale        Float  @default(70)
+  staffTrainingLevel Float  @default(60)
+  // Useful when carrying values across rounds in the simulation engine.
+  lastUpdatedRound   Int    @default(0)
+  team               Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("hotel_states")
+}
+
+// ============================================================
+// Round lifecycle
+// ============================================================
+
+enum RoundStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+}
+
+model Round {
+  id               String        @id @default(cuid())
+  classId          String
+  roundNumber      Int
+  status           RoundStatus   @default(PENDING)
+  // External environment modifiers consumed by the simulation engine.
+  seasonFactor     Float         @default(1.0)
+  economyFactor    Float         @default(1.0)
+  eventFactor      Float         @default(1.0)
+  eventDescription String?
+  rulesetId        String?
+  rulesetVersion   String?
+  rulesetName      String?
+  parameterSnapshot Json?
+  scoringSnapshot   Json?
+  randomSeed       String?
+  competitionStageId String?
+  deadline         DateTime?
+  processedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  class            Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  ruleset          Ruleset?      @relation(fields: [rulesetId], references: [id], onDelete: SetNull)
+  competitionStage CompetitionStage? @relation(fields: [competitionStageId], references: [id], onDelete: SetNull)
+  decisions        Decision[]
+  results          RoundResult[]
+  advancements     Advancement[] @relation("AdvancementSourceRound")
+
+  @@unique([classId, roundNumber])
+  @@index([classId, status])
+  @@index([rulesetId])
+  @@index([competitionStageId])
+  @@map("rounds")
+}
+
+// ============================================================
+// Team decisions: one row per team per round
+// ============================================================
+
+enum DecisionStatus {
+  DRAFT
+  SUBMITTED
+  LOCKED
+}
+
+model Decision {
+  id          String         @id @default(cuid())
+  teamId      String
+  roundId     String
+  status      DecisionStatus @default(DRAFT)
+  submittedAt DateTime?
+  submittedBy String?
+
+  // Pricing by market segment (RMB per room night).
+  priceBusinessTransient Float @default(580)
+  priceBusinessGroup     Float @default(520)
+  priceLeisureTransient  Float @default(480)
+  priceLeisureGroup      Float @default(420)
+  priceGovernment        Float @default(400)
+  priceOnlineOTA         Float @default(450)
+  priceAirlineCrew       Float @default(320)
+  priceLongStay          Float @default(350)
+
+  // Marketing budget allocation (10k RMB per month).
+  marketingTotal             Float @default(80)
+  mktBudgetBusinessTransient Float @default(15)
+  mktBudgetBusinessGroup     Float @default(10)
+  mktBudgetLeisureTransient  Float @default(15)
+  mktBudgetLeisureGroup      Float @default(10)
+  mktBudgetGovernment        Float @default(8)
+  mktBudgetOnlineOTA         Float @default(12)
+  mktBudgetAirlineCrew       Float @default(5)
+  mktBudgetLongStay          Float @default(5)
+
+  // Channel mix percentages.
+  channelDirect      Float @default(30)
+  channelOTA         Float @default(35)
+  channelTravelAgent Float @default(15)
+  channelCorporate   Float @default(15)
+  channelGDS         Float @default(5)
+
+  // Monthly operating spend (10k RMB).
+  opexRoomsMaintenance Float @default(30)
+  opexFoodBeverage     Float @default(25)
+  opexFrontDesk        Float @default(15)
+  opexHousekeeping     Float @default(20)
+  opexUtilities        Float @default(18)
+  opexStaffTraining    Float @default(8)
+  opexStaffWelfare     Float @default(6)
+  opexSecurity         Float @default(5)
+  opexIT               Float @default(8)
+
+  // One-off capital investments this round (10k RMB).
+  capexRenovation Float @default(0)
+  capexFurniture  Float @default(0)
+  capexTechnology Float @default(0)
+  capexFacilities Float @default(0)
+  capexESGGreen   Float @default(0)
+
+  // Financing decisions.
+  newLoanAmount Float @default(0)
+  loanRepayment Float @default(0)
+
+  // ESG strategy intensity (0-100).
+  esgEnergyInvestment    Float @default(30)
+  esgWasteManagement     Float @default(30)
+  esgCommunityEngagement Float @default(20)
+  esgEmployeeDiversity   Float @default(20)
+
+  // Leave this string-based for now; later validation can constrain it.
+  taxStrategy String @default("STANDARD")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  round     Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, roundId])
+  @@index([roundId, status])
+  @@map("decisions")
+}
+
+// ============================================================
+// Engine outputs: one row per team per round
+// ============================================================
+
+model RoundResult {
+  id          String @id @default(cuid())
+  teamId      String
+  roundId     String
+  roundNumber Int
+
+  // Operating KPIs
+  occupancyRate       Float
+  adr                 Float
+  revpar              Float
+  totalRoomsSold      Int
+  totalRoomsAvailable Int
+  // Per-segment details live in JSON until the reporting layer matures.
+  segmentResults      Json
+
+  // Revenue
+  roomRevenue  Float
+  fbRevenue    Float
+  otherRevenue Float
+  totalRevenue Float
+
+  // Costs
+  totalOpex           Float
+  totalMarketing      Float
+  totalCapex          Float
+  depreciationExpense Float
+  interestExpense     Float
+  taxExpense          Float
+
+  // Profit
+  grossOperatingProfit Float
+  ebitda               Float
+  netProfit            Float
+  profitMargin         Float
+
+  // Market and brand
+  overallMarketShare   Float
+  brandReputationEnd   Float
+  onlineRatingEnd      Float
+  guestSatisfactionEnd Float
+  esgScoreEnd          Float
+
+  // Balance sheet snapshots
+  cashBalanceEnd    Float
+  totalDebtEnd      Float
+  debtToEquityRatio Float
+  returnOnEquity    Float
+
+  // Rankings
+  rankRevenue   Int
+  rankProfit    Int
+  rankOccupancy Int
+  rankOverall   Int
+
+  // Competition-grade scoring keeps the legacy teacher fields below intact for
+  // compatibility, but the forward path is systemScore + judgeScores +
+  // explanationLog.
+  systemScore          Float?
+  systemScoreBreakdown Json?
+  penaltyScore         Float @default(0)
+  explanationLog       Json?
+  judgeScoreAverage    Float?
+  judgeScoreCount      Int   @default(0)
+  finalScore           Float?
+
+  // Optional teacher grading.
+  // Keep these legacy fields for existing teacher/admin pages and exports even
+  // after judge_scores becomes the primary scoring store.
+  teacherScore   Float?
+  teacherComment String? @db.Text
+
+  createdAt DateTime @default(now())
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  round     Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  judgeScores JudgeScore[]
+
+  @@unique([teamId, roundId])
+  @@index([teamId, roundNumber, createdAt])
+  @@index([roundId, rankOverall])
+  @@index([teacherScore])
+  @@index([finalScore])
+  @@map("round_results")
+}
+
+model Ruleset {
+  id            String        @id @default(cuid())
+  name          String
+  version       String
+  status        RulesetStatus @default(ACTIVE)
+  description   String?       @db.Text
+  formulaConfig Json          @default("{}")
+  scoringConfig Json          @default("{}")
+  rankingConfig Json          @default("{}")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  rounds        Round[]
+  competitions  Competition[]
+
+  @@unique([name, version])
+  @@index([status])
+  @@map("rulesets")
+}
+
+model JudgeScore {
+  id        String   @id @default(cuid())
+  resultId   String
+  judgeId    String
+  score      Float?
+  comment    String? @db.Text
+  breakdown  Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  result     RoundResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  judge      User        @relation("JudgeUserScores", fields: [judgeId], references: [id], onDelete: Cascade)
+
+  @@unique([resultId, judgeId])
+  @@index([judgeId, createdAt])
+  @@map("judge_scores")
+}
+
+model Competition {
+  id               String            @id @default(cuid())
+  name             String
+  code             String            @unique
+  description      String?           @db.Text
+  status           CompetitionStatus @default(DRAFT)
+  legacySemesterId String?
+  rulesetId        String?
+  createdById      String?
+  startDate        DateTime?
+  endDate          DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  legacySemester   Semester?         @relation(fields: [legacySemesterId], references: [id], onDelete: SetNull)
+  ruleset          Ruleset?          @relation(fields: [rulesetId], references: [id], onDelete: SetNull)
+  createdBy        User?             @relation("CompetitionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  stages           CompetitionStage[]
+  announcements    Announcement[]
+  advancements     Advancement[]
+
+  @@index([status])
+  @@index([legacySemesterId])
+  @@index([rulesetId])
+  @@map("competitions")
+}
+
+model CompetitionStage {
+  id            String                 @id @default(cuid())
+  competitionId String
+  name          String
+  stageOrder    Int
+  status        CompetitionStageStatus @default(DRAFT)
+  description   String?                @db.Text
+  maxRounds     Int?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  competition   Competition            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  rounds        Round[]
+  advancements  Advancement[]
+
+  @@unique([competitionId, stageOrder])
+  @@index([competitionId, status])
+  @@map("competition_stages")
+}
+
+model Advancement {
+  id            String             @id @default(cuid())
+  competitionId String
+  stageId       String?
+  teamId        String
+  sourceRoundId String?
+  targetClassId String?
+  status        AdvancementStatus  @default(QUALIFIED)
+  note          String?            @db.Text
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  competition   Competition        @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  stage         CompetitionStage?  @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  team          Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  sourceRound   Round?             @relation("AdvancementSourceRound", fields: [sourceRoundId], references: [id], onDelete: SetNull)
+  targetClass   Class?             @relation("AdvancementTargetClass", fields: [targetClassId], references: [id], onDelete: SetNull)
+
+  @@index([competitionId, teamId])
+  @@index([stageId])
+  @@index([sourceRoundId])
+  @@index([targetClassId])
+  @@map("advancements")
+}
+
+model Announcement {
+  id            String    @id @default(cuid())
+  competitionId String?
+  title         String
+  content       String    @db.Text
+  isPinned      Boolean   @default(false)
+  isPublished   Boolean   @default(true)
+  publishedAt   DateTime?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: SetNull)
+  createdBy     User?     @relation("AnnouncementCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([competitionId, isPublished])
+  @@index([publishedAt])
+  @@map("announcements")
+}
+
+// ============================================================
+// System-level configuration and audit history
+// ============================================================
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("system_configs")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String
+  details    Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action, createdAt])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([entityType, createdAt])
+  @@map("audit_logs")
+}

@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use SWUFE HotelSim in teaching or research, please cite this repository."
+title: "SWUFE HotelSim"
+type: software
+authors:
+  - family-names: Wang
+    given-names: Lidong
+repository-code: "https://github.com/WLDKK/swufe-hotelsim"
+license: MIT
+version: 0.1.0
+date-released: 2026-08-03

@@ -1,0 +1,7 @@
+-- This file intentionally does not insert real demo data.
+-- It exists so `supabase db reset` and related CLI flows do not fail while
+-- looking for the default ./seed.sql path created by `supabase init`.
+--
+-- The authoritative seed for this project lives in `prisma/seed.ts` because
+-- it needs application-aware logic such as password hashing, reproducible
+-- random data generation, and multi-table business setup.
