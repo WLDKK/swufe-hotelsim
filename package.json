@@ -45,7 +45,7 @@
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dotenv": "^17.3.1",
+    "dotenv": "^17.4.2",
     "lucide-react": "^1.7.0",
     "next": "15.5.22",
     "next-auth": "5.0.0-beta.32",
