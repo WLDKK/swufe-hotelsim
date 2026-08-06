@@ -6,7 +6,7 @@ This runbook promotes SWUFE HotelSim to Cloudflare Workers with Supabase Postgre
 
 - Next.js 15 App Router is packaged by `@opennextjs/cloudflare`.
 - Cloudflare Workers runs the Node.js runtime with `nodejs_compat`.
-- Prisma uses `@prisma/adapter-pg`; database connections come from `DATABASE_URL`.
+- Prisma uses `@prisma/adapter-pg`. Workers use the `HYPERDRIVE` binding; local tools and migrations fall back to `DATABASE_URL`.
 - Prisma migrations remain the schema source of truth; `supabase/rls.sql` is the auditable Data API policy layer.
 
 ## Required configuration
@@ -18,6 +18,7 @@ Required for the core runtime:
 - `DATABASE_URL`, `DIRECT_URL`
 - `AUTH_URL`, `AUTH_SECRET`
 - `NEXTAUTH_URL`, `NEXTAUTH_SECRET`
+- a Cloudflare Hyperdrive configuration bound as `HYPERDRIVE`
 
 Configure SMTP, Turnstile, Supabase API, alert-delivery, and public demo variables only when those features are enabled. `ALLOW_DB_RESET` must remain false in shared environments.
 
@@ -48,9 +49,10 @@ OpenNext does not guarantee native Windows builds. Use WSL, Linux, macOS, or the
 
 1. Authenticate: `pnpm exec wrangler login` or set `CLOUDFLARE_API_TOKEN`.
 2. Confirm identity: `pnpm exec wrangler whoami`.
-3. Add runtime secrets with `pnpm exec wrangler secret put NAME`.
-4. Build and deploy: `pnpm cf:deploy`.
-5. Record the Worker version and deployment URL.
+3. Create or verify the `HYPERDRIVE` binding for production Postgres. Keep its ID in `wrangler.jsonc`; credentials remain encrypted in Cloudflare.
+4. Add runtime secrets with `pnpm exec wrangler secret put NAME`.
+5. Build, relocate, validate, and deploy the OpenNext artifact. The GitHub workflow performs the first three steps before publishing the artifact.
+6. Record the Worker version and deployment URL.
 
 The source-controlled Worker configuration enables `nodejs_compat`, static assets, logs, and sampled traces. Do not add secret values under `vars`.
 

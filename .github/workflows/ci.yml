@@ -56,6 +56,14 @@ jobs:
       - name: Cloudflare Workers build
         run: pnpm cf:build
 
+      - name: Make Cloudflare Workers artifact relocatable
+        run: pnpm cf:relocate
+
+      - name: Validate Cloudflare Workers package
+        env:
+          OPEN_NEXT_DEPLOY: "true"
+        run: pnpm exec wrangler deploy --dry-run --outdir .wrangler/dry-run
+
       - name: Upload Cloudflare Workers artifact
         uses: actions/upload-artifact@v4
         with:

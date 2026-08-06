@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { cache } from "react";
 import {
   getDatabaseReadRetryConfig,
@@ -8,8 +9,24 @@ import {
   waitForRetryDelay,
 } from "@/lib/database/retry";
 
+function getRuntimeConnectionString() {
+  try {
+    const hyperdriveConnectionString =
+      getCloudflareContext().env.HYPERDRIVE?.connectionString;
+
+    if (hyperdriveConnectionString) {
+      return hyperdriveConnectionString;
+    }
+  } catch {
+    // `next build`, tests, and plain Node.js processes do not have a Worker
+    // request context. They intentionally fall back to DATABASE_URL.
+  }
+
+  return process.env.DATABASE_URL;
+}
+
 function createPrismaClient() {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = getRuntimeConnectionString();
   if (!connectionString) {
     throw new Error("DATABASE_URL is required to initialize Prisma.");
   }
