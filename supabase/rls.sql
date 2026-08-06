@@ -8,6 +8,7 @@ create or replace function public.app_user_id()
 returns text
 language sql
 stable
+set search_path = ''
 as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '');
 $$;
@@ -175,6 +176,12 @@ alter table public.announcements enable row level security;
 alter table public.competition_judge_assignments enable row level security;
 alter table public.system_configs enable row level security;
 alter table public.audit_logs enable row level security;
+
+-- The application reaches Postgres through server-side Prisma. Do not expose
+-- private application tables to unauthenticated Supabase Data API callers;
+-- authenticated access remains constrained by the policies below.
+revoke all privileges on all tables in schema public from anon;
+alter default privileges in schema public revoke all privileges on tables from anon;
 
 -- PostgreSQL grants EXECUTE on functions to PUBLIC by default. Restrict the
 -- policy helpers to authenticated requests and trusted server-side access.
