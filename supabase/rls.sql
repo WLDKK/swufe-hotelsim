@@ -197,6 +197,16 @@ revoke execute on function public.is_member_of_class(text) from public, anon;
 revoke execute on function public.is_judge_for_competition(text) from public, anon;
 revoke execute on function public.is_teacher_for_competition(text) from public, anon;
 
+-- Supabase projects may include this SECURITY DEFINER trigger helper. It must
+-- never be callable as an unauthenticated Data API RPC.
+do $$
+begin
+  if to_regprocedure('public.rls_auto_enable()') is not null then
+    execute 'revoke execute on function public.rls_auto_enable() from public, anon';
+  end if;
+end
+$$;
+
 grant execute on function public.app_user_id() to authenticated, service_role;
 grant execute on function public.app_user_role() to authenticated, service_role;
 grant execute on function public.is_admin() to authenticated, service_role;
