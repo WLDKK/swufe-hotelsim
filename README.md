@@ -44,7 +44,7 @@ The main reuse boundaries are:
 
 ### Prerequisites
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - pnpm 10.18.0
 - A disposable PostgreSQL or Supabase development database
 
