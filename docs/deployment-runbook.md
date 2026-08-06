@@ -18,7 +18,7 @@ Required for the core runtime:
 - `DATABASE_URL`, `DIRECT_URL`
 - `AUTH_URL`, `AUTH_SECRET`
 - `NEXTAUTH_URL`, `NEXTAUTH_SECRET`
-- a Cloudflare Hyperdrive configuration bound as `HYPERDRIVE`
+- a cache-disabled Cloudflare Hyperdrive configuration bound as `HYPERDRIVE`
 
 Configure SMTP, Turnstile, Supabase API, alert-delivery, and public demo variables only when those features are enabled. `ALLOW_DB_RESET` must remain false in shared environments.
 
@@ -49,7 +49,7 @@ OpenNext does not guarantee native Windows builds. Use WSL, Linux, macOS, or the
 
 1. Authenticate: `pnpm exec wrangler login` or set `CLOUDFLARE_API_TOKEN`.
 2. Confirm identity: `pnpm exec wrangler whoami`.
-3. Create or verify the `HYPERDRIVE` binding for production Postgres. Keep its ID in `wrangler.jsonc`; credentials remain encrypted in Cloudflare.
+3. Create or verify the cache-disabled `HYPERDRIVE` binding for production Postgres. Keep its ID in `wrangler.jsonc`; credentials remain encrypted in Cloudflare. Competition, authentication, and authorization reads require read-after-write consistency.
 4. Add runtime secrets with `pnpm exec wrangler secret put NAME`.
 5. Build, relocate, validate, and deploy the OpenNext artifact. The GitHub workflow performs the first three steps before publishing the artifact.
 6. Record the Worker version and deployment URL.
