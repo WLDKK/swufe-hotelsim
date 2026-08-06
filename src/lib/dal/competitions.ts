@@ -40,6 +40,22 @@ const competitionSummaryInclude = Prisma.validator<Prisma.CompetitionInclude>()(
     },
     orderBy: [{ stageOrder: "asc" }],
   },
+  judgeAssignments: {
+    select: {
+      id: true,
+      judgeId: true,
+      createdAt: true,
+      judge: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+    },
+    orderBy: [{ createdAt: "asc" }],
+  },
 }) satisfies Prisma.CompetitionInclude;
 
 const stageSummaryInclude = Prisma.validator<Prisma.CompetitionStageInclude>()({
@@ -266,6 +282,78 @@ export async function createCompetition(input: Prisma.CompetitionUncheckedCreate
   });
 }
 
+export async function updateCompetitionStatus(
+  competitionId: string,
+  status: CompetitionStatus
+) {
+  return prisma.competition.update({
+    where: { id: competitionId },
+    data: { status },
+    include: competitionSummaryInclude,
+  });
+}
+
+export async function listJudgeAssignments(competitionId?: string) {
+  return withCompetitionSchemaFallback(
+    () =>
+      prisma.competitionJudgeAssignment.findMany({
+        where: competitionId ? { competitionId } : undefined,
+        include: {
+          competition: {
+            select: { id: true, name: true, code: true, status: true },
+          },
+          judge: {
+            select: { id: true, name: true, email: true, role: true },
+          },
+          createdBy: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+        orderBy: [{ createdAt: "desc" }],
+      }),
+    []
+  );
+}
+
+export async function assignJudgeToCompetition(input: {
+  competitionId: string;
+  judgeId: string;
+  createdById: string;
+}) {
+  return prisma.competitionJudgeAssignment.upsert({
+    where: {
+      competitionId_judgeId: {
+        competitionId: input.competitionId,
+        judgeId: input.judgeId,
+      },
+    },
+    update: { createdById: input.createdById },
+    create: input,
+    include: {
+      competition: {
+        select: { id: true, name: true, code: true, status: true },
+      },
+      judge: {
+        select: { id: true, name: true, email: true, role: true },
+      },
+    },
+  });
+}
+
+export async function removeJudgeFromCompetition(input: {
+  competitionId: string;
+  judgeId: string;
+}) {
+  return prisma.competitionJudgeAssignment.delete({
+    where: {
+      competitionId_judgeId: {
+        competitionId: input.competitionId,
+        judgeId: input.judgeId,
+      },
+    },
+  });
+}
+
 export async function listCompetitionStages(competitionId?: string) {
   return cacheQuery(
     ["competition-stages", competitionId ?? "all"],
@@ -443,6 +531,7 @@ export async function getJudgeDashboardSnapshot(judgeId: string) {
                     CompetitionStatus.COMPLETED,
                   ],
                 },
+                judgeAssignments: { some: { judgeId } },
               },
             },
           },

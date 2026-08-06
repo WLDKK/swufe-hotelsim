@@ -9,13 +9,35 @@ export async function getAccessibleSemesterRecord(
   user: ApiSessionUser,
   semesterId: string
 ) {
-  if (user.role === "ADMIN" || user.role === "JUDGE") {
+  if (user.role === "ADMIN") {
     return prisma.semester.findUnique({
       where: { id: semesterId },
       select: {
         id: true,
         creatorId: true,
       },
+    });
+  }
+
+  if (user.role === "JUDGE") {
+    return prisma.semester.findFirst({
+      where: {
+        id: semesterId,
+        classes: {
+          some: {
+            rounds: {
+              some: {
+                competitionStage: {
+                  competition: {
+                    judgeAssignments: { some: { judgeId: user.id } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      select: { id: true, creatorId: true },
     });
   }
 
@@ -39,7 +61,7 @@ export async function getAccessibleClassRecord(
   user: ApiSessionUser,
   classId: string
 ) {
-  if (user.role === "ADMIN" || user.role === "JUDGE") {
+  if (user.role === "ADMIN") {
     return prisma.class.findUnique({
       where: { id: classId },
       select: {
@@ -54,6 +76,32 @@ export async function getAccessibleClassRecord(
             teams: true,
           },
         },
+      },
+    });
+  }
+
+  if (user.role === "JUDGE") {
+    return prisma.class.findFirst({
+      where: {
+        id: classId,
+        rounds: {
+          some: {
+            competitionStage: {
+              competition: {
+                judgeAssignments: { some: { judgeId: user.id } },
+              },
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        semesterId: true,
+        currentRound: true,
+        maxTeams: true,
+        minTeamSize: true,
+        maxTeamSize: true,
+        _count: { select: { teams: true } },
       },
     });
   }
@@ -115,13 +163,33 @@ export async function getAccessibleTeamRecord(
   user: ApiSessionUser,
   teamId: string
 ) {
-  if (user.role === "ADMIN" || user.role === "JUDGE") {
+  if (user.role === "ADMIN") {
     return prisma.team.findUnique({
       where: { id: teamId },
       select: {
         id: true,
         classId: true,
       },
+    });
+  }
+
+  if (user.role === "JUDGE") {
+    return prisma.team.findFirst({
+      where: {
+        id: teamId,
+        class: {
+          rounds: {
+            some: {
+              competitionStage: {
+                competition: {
+                  judgeAssignments: { some: { judgeId: user.id } },
+                },
+              },
+            },
+          },
+        },
+      },
+      select: { id: true, classId: true },
     });
   }
 
@@ -166,9 +234,28 @@ export async function getAccessibleRoundRecord(
   user: ApiSessionUser,
   roundId: string
 ) {
-  if (user.role === "ADMIN" || user.role === "JUDGE") {
+  if (user.role === "ADMIN") {
     return prisma.round.findUnique({
       where: { id: roundId },
+      select: {
+        id: true,
+        classId: true,
+        roundNumber: true,
+        status: true,
+      },
+    });
+  }
+
+  if (user.role === "JUDGE") {
+    return prisma.round.findFirst({
+      where: {
+        id: roundId,
+        competitionStage: {
+          competition: {
+            judgeAssignments: { some: { judgeId: user.id } },
+          },
+        },
+      },
       select: {
         id: true,
         classId: true,

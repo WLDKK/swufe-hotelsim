@@ -23,6 +23,7 @@ import {
   updateRoundEnvironment,
 } from "@/lib/dal/rounds";
 import { roundCreateSchema, roundUpdateSchema } from "@/lib/validations/api";
+import prisma from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,21 @@ export async function POST(request: NextRequest) {
       return apiError(404, "Class not found.");
     }
 
+    if (parsed.data.competitionStageId) {
+      const stage = await prisma.competitionStage.findFirst({
+        where: {
+          id: parsed.data.competitionStageId,
+          ...(session.user.role === "ADMIN"
+            ? {}
+            : { competition: { createdById: session.user.id } }),
+        },
+        select: { id: true },
+      });
+      if (!stage) {
+        return apiError(404, "Competition stage not found.");
+      }
+    }
+
     const classRecord = await getClassById(parsed.data.classId);
     if (!classRecord) {
       return apiError(404, "Class not found.");
@@ -158,6 +174,7 @@ export async function POST(request: NextRequest) {
       eventFactor: parsed.data.eventFactor,
       eventDescription: parsed.data.eventDescription,
       randomSeed: parsed.data.randomSeed,
+      competitionStageId: parsed.data.competitionStageId,
       nextClassStatus:
         classRecord.status === ClassStatus.SETUP
           ? ClassStatus.IN_PROGRESS
@@ -239,6 +256,22 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+
+    if (parsed.data.competitionStageId) {
+      const stage = await prisma.competitionStage.findFirst({
+        where: {
+          id: parsed.data.competitionStageId,
+          ...(session.user.role === "ADMIN"
+            ? {}
+            : { competition: { createdById: session.user.id } }),
+        },
+        select: { id: true },
+      });
+      if (!stage) {
+        return apiError(404, "Competition stage not found.");
+      }
+    }
+
     const updatedRound = await updateRoundEnvironment({
       roundId: round.id,
       seasonFactor: parsed.data.seasonFactor,
@@ -246,6 +279,7 @@ export async function PATCH(request: NextRequest) {
       eventFactor: parsed.data.eventFactor,
       eventDescription: parsed.data.eventDescription,
       randomSeed: parsed.data.randomSeed,
+      competitionStageId: parsed.data.competitionStageId,
     });
 
     await recordAuditLog({
@@ -261,6 +295,7 @@ export async function PATCH(request: NextRequest) {
         economyFactor: updatedRound.economyFactor,
         eventFactor: updatedRound.eventFactor,
         randomSeed: updatedRound.randomSeed,
+        competitionStageId: updatedRound.competitionStageId,
       },
     });
 

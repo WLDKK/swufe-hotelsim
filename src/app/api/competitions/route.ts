@@ -3,6 +3,7 @@ import { recordAuditLog } from "@/lib/audit";
 import { revalidateCacheTags, cacheTags } from "@/lib/cache";
 import { getOptionalSearchParam } from "@/lib/api/requests";
 import {
+  apiError,
   apiSuccess,
   apiValidationError,
   mapRouteError,
@@ -12,8 +13,9 @@ import {
   createCompetition,
   getCompetitionById,
   listCompetitions,
+  updateCompetitionStatus,
 } from "@/lib/dal/competitions";
-import { competitionCreateSchema } from "@/lib/validations/api";
+import { competitionCreateSchema, competitionStatusUpdateSchema } from "@/lib/validations/api";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +98,58 @@ export async function POST(request: NextRequest) {
     revalidateCacheTags([cacheTags.competitions]);
 
     return apiSuccess({ competition }, 201);
+  } catch (error) {
+    return mapRouteError(error);
+  }
+}
+
+const allowedStatusTransitions = {
+  DRAFT: ["READY", "ARCHIVED"],
+  READY: ["DRAFT", "ACTIVE", "ARCHIVED"],
+  ACTIVE: ["COMPLETED"],
+  COMPLETED: ["ARCHIVED"],
+  ARCHIVED: [],
+} as const;
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const authResult = await requireApiSession();
+    if ("response" in authResult) return authResult.response;
+
+    const { session } = authResult;
+    const roleError = requireApiRoles(session.user, ["TEACHER", "ADMIN"]);
+    if (roleError) return roleError;
+
+    const parsed = competitionStatusUpdateSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return apiValidationError(parsed.error, "The competition status payload is invalid.");
+    }
+
+    const current = await getCompetitionById(parsed.data.competitionId);
+    if (!current || (session.user.role !== "ADMIN" && current.createdById !== session.user.id)) {
+      return apiError(404, "Competition not found.");
+    }
+    if (current.status === parsed.data.status) return apiSuccess({ competition: current });
+
+    const allowed = allowedStatusTransitions[current.status] as readonly string[];
+    if (!allowed.includes(parsed.data.status)) {
+      return apiError(
+        409,
+        `Cannot move competition from ${current.status} to ${parsed.data.status}.`
+      );
+    }
+
+    const competition = await updateCompetitionStatus(parsed.data.competitionId, parsed.data.status);
+    await recordAuditLog({
+      request,
+      user: session.user,
+      action: "competition.status.update",
+      entityType: "competition",
+      entityId: competition.id,
+      details: { previousStatus: current.status, nextStatus: competition.status },
+    });
+    revalidateCacheTags([cacheTags.competitions, cacheTags.competition(competition.id)]);
+    return apiSuccess({ competition });
   } catch (error) {
     return mapRouteError(error);
   }

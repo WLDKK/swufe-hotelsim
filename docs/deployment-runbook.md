@@ -1,137 +1,73 @@
 # Deployment Runbook
 
-This runbook is the operational path for promoting the current SWUFE HotelSim build onto an environment backed by Supabase Postgres.
+This runbook promotes SWUFE HotelSim to Cloudflare Workers with Supabase Postgres.
 
-## Scope
+## Runtime architecture
 
-- Next.js 14 application runtime
-- Prisma schema and migrations
-- Supabase-hosted Postgres
-- Auth.js credential-based login
-- simulation, grading, export, admin governance, alerting, localization, and release hardening
+- Next.js 15 App Router is packaged by `@opennextjs/cloudflare`.
+- Cloudflare Workers runs the Node.js runtime with `nodejs_compat`.
+- Prisma uses `@prisma/adapter-pg`; database connections come from `DATABASE_URL`.
+- Prisma migrations remain the schema source of truth; `supabase/rls.sql` is the auditable Data API policy layer.
 
-## Required Environment Variables
+## Required configuration
 
-Copy `.env.example` and fill the production-safe values:
+Copy `.env.example` for local work. Configure production secrets with `wrangler secret put`; never place them in `wrangler.jsonc`.
 
-- `DATABASE_URL`
-- `DIRECT_URL`
-- `NEXTAUTH_URL`
-- `NEXTAUTH_SECRET`
-- `AUTH_URL`
-- `AUTH_SECRET`
-- `SUPABASE_URL`
-- `SUPABASE_PUBLISHABLE_KEY`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `AUTH_REQUIRE_EMAIL_VERIFICATION`
-- `AUTH_ENABLE_CAPTCHA`
-- `AUTH_EMAIL_VERIFICATION_TTL_HOURS`
-- `AUTH_PASSWORD_RESET_TTL_MINUTES`
-- `PASSWORD_BCRYPT_ROUNDS`
-- `EMAIL_SERVER`
-- `EMAIL_FROM`
-- `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
-- `TURNSTILE_SECRET_KEY`
-- `ALERT_EMAIL_TO`
-- `ALERT_WEBHOOK_URL`
-- `ALERT_WEBHOOK_BEARER_TOKEN`
-- `ALERT_SLACK_WEBHOOK_URL`
-- `PRISMA_READ_RETRY_ATTEMPTS`
-- `PRISMA_READ_RETRY_DELAY_MS`
+Required for the core runtime:
 
-## Pre-Deployment Checklist
+- `DATABASE_URL`, `DIRECT_URL`
+- `AUTH_URL`, `AUTH_SECRET`
+- `NEXTAUTH_URL`, `NEXTAUTH_SECRET`
 
-1. Confirm the target branch is the intended release candidate.
-2. Run `pnpm install`.
-3. Run `pnpm db:generate`.
-4. Run `pnpm db:validate`.
-5. Run `pnpm build` once on a clean workspace to generate `.next/types`.
-6. Run `pnpm typecheck`.
-7. Run `pnpm lint`.
-8. Run `pnpm test`.
-9. Run the browser smoke suite:
-   - `pnpm test:e2e e2e/auth-and-dashboard.spec.ts`
-   - `pnpm test:e2e e2e/admin-console.spec.ts`
-   - `pnpm test:e2e e2e/student-onboarding-edge.spec.ts`
-10. If the shared Supabase environment may be mutated safely, run:
-   - `E2E_ALLOW_MUTATION=true pnpm test:e2e e2e/stage3-live-flow.spec.ts`
-11. If the target is a disposable fresh-seed environment, run:
-   - `ALLOW_DB_RESET=true pnpm db:seed`
-   - `E2E_ALLOW_MUTATION=true E2E_EXPECT_FRESH_SEED=true pnpm test:e2e:disposable`
-   - This single-worker disposable chain was validated successfully on 2026-04-01 in one fresh disposable Supabase environment.
+Configure SMTP, Turnstile, Supabase API, alert-delivery, and public demo variables only when those features are enabled. `ALLOW_DB_RESET` must remain false in shared environments.
 
-## Registration Readiness Note
+## Database release
 
-- `/register` already creates real student accounts and now supports CAPTCHA gating plus email-verification-aware auth flows.
-- Password reset and resend-verification pages are also present in the current auth surface.
-- Before exposing public signup widely, configure real SMTP credentials, Turnstile keys, and an explicit operational policy for orphan student accounts and verification email delivery failures.
+1. Back up the target database and record the current migration.
+2. Run `pnpm db:validate` and `pnpm db:generate`.
+3. Run `pnpm db:deploy` against the production direct connection.
+4. Run `pnpm db:rls` if the Supabase Data API is enabled.
+5. Do not run the seed command on production.
 
-## Database Deployment
+Migration `0004_competition_operations` adds the competition-level judge assignment boundary. Deploy it before using the competition operations console.
 
-The Prisma schema is the source of truth.
+## Application verification
 
-1. Point `DATABASE_URL` and `DIRECT_URL` at the target Supabase project.
-2. Run `pnpm db:generate`.
-3. Run `pnpm db:deploy`.
-4. Run `pnpm db:rls`.
-5. Only for disposable environments, optionally run:
-   - `ALLOW_DB_RESET=true pnpm db:seed`
-6. When validating a throwaway release candidate end to end, follow the seed with:
-   - `E2E_ALLOW_MUTATION=true E2E_EXPECT_FRESH_SEED=true pnpm test:e2e:disposable`
-   - Keep the same seeded database across that run so governance, roster, and Stage 3 execute on one disposable environment.
+Run:
 
-## Application Build and Start
+```bash
+pnpm install --frozen-lockfile
+pnpm release:check
+```
 
-1. Run `pnpm build`.
-2. Run `pnpm start`.
-3. Confirm the site serves successfully on the configured port.
+`release:check` validates dependencies, Prisma generation, the production Next.js build, types, lint, unit/component/route tests, simulation balance, and the Cloudflare bundle.
 
-## Post-Deploy Smoke Checks
+OpenNext does not guarantee native Windows builds. Use WSL, Linux, macOS, or the Ubuntu GitHub Actions release workflow for `pnpm cf:build`.
 
-Verify these routes after deployment:
+## Cloudflare release
 
-- `/login`
-- `/student/dashboard`
-- `/student/team`
-- `/student/join`
-- `/teacher/dashboard`
-- `/teacher/simulation`
-- `/teacher/grading`
-- confirm the grading screen can expose the current round gradebook download when processed results exist
-- `/admin/dashboard`
-- confirm `Recent audit activity` renders on `/admin/dashboard`
-- confirm `Actionable alerts` renders on `/admin/dashboard`
-- confirm the alert card shows delivery-channel badges plus acknowledge/mute controls
-- confirm `Live observability` renders on `/admin/dashboard`
-- `/admin/users`
-- `/admin/semesters`
-- `/admin/classes`
+1. Authenticate: `pnpm exec wrangler login` or set `CLOUDFLARE_API_TOKEN`.
+2. Confirm identity: `pnpm exec wrangler whoami`.
+3. Add runtime secrets with `pnpm exec wrangler secret put NAME`.
+4. Build and deploy: `pnpm cf:deploy`.
+5. Record the Worker version and deployment URL.
 
-## Supabase CLI Notes
+The source-controlled Worker configuration enables `nodejs_compat`, static assets, logs, and sampled traces. Do not add secret values under `vars`.
 
-- The project uses a repo-local CLI installation via `pnpm exec supabase`.
-- CLI login is optional for the Prisma-first deployment path above.
-- Only use `supabase link`, `supabase db pull`, or similar remote-management commands when the workflow explicitly requires them.
-- The fresh-seed disposable mutation suite does not require CLI login by itself; it only requires the app environment to point at the throwaway Supabase database that was just reseeded.
+## Post-deploy checks
 
-## Rollback Guidance
+- `GET /api/health` returns `200` and reports `database: ready`.
+- `/`, `/login`, and `/display` load without authentication.
+- A student can open decisions and results.
+- A teacher can inspect classes and process a prepared round.
+- An admin can open `/admin/competitions`, assign a judge, and link a pending round.
+- The assigned judge can score that result; an unassigned judge receives no class/result access.
+- The public leaderboard and announcements expose no private account data.
 
-If the deploy fails after code rollout but before healthy validation:
+## Rollback
 
-1. Stop new rollout traffic.
-2. Revert to the last known-good application build.
-3. Re-run smoke checks against the reverted build.
-4. If the issue was caused by a migration, assess whether a forward-fix migration is safer than a manual rollback.
-5. Do not run the destructive seed on a shared production dataset.
+Roll back the Worker to the previous Cloudflare version first. Prefer a forward-fix database migration over destructive SQL rollback. Never reset or reseed a shared database during incident response.
 
-## Release Evidence
+## Release evidence
 
-Capture and store:
-
-- git commit SHA
-- exact migration set deployed
-- `pnpm build` result
-- automated test summary
-- if disposable validation was part of release evidence, record whether `pnpm test:e2e:disposable` passed on the same seed
-- smoke-check screenshots or logs
+Store the git commit, applied migrations, automated check summary, Worker version, `/api/health` response, and smoke-test log. Screenshots are optional and are not required for automated release evidence.

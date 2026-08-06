@@ -4,7 +4,6 @@ import {
   CalendarClock,
   Megaphone,
   ShieldCheck,
-  Sparkles,
   Trophy,
 } from "lucide-react";
 import { DisplayStoryCarousel } from "@/components/display/display-story-carousel";
@@ -27,11 +26,19 @@ import { describeRoundEnvironment } from "@/lib/simulation/environment";
 export const dynamic = "force-dynamic";
 
 export default async function DisplayHomePage() {
-  const [competition, leaderboardSnapshot, announcements] = await Promise.all([
+  const [competitionResult, leaderboardResult, announcementsResult] = await Promise.allSettled([
     getActiveCompetition(),
     getDisplayLeaderboardSnapshot(),
     listAnnouncements({ publishedOnly: true }),
   ]);
+  const competition = competitionResult.status === "fulfilled" ? competitionResult.value : null;
+  const leaderboardSnapshot = leaderboardResult.status === "fulfilled"
+    ? leaderboardResult.value
+    : { snapshot: null, leaderboard: [] };
+  const announcements = announcementsResult.status === "fulfilled" ? announcementsResult.value : [];
+  const dataAvailable = [competitionResult, leaderboardResult, announcementsResult].every(
+    (result) => result.status === "fulfilled"
+  );
 
   const snapshot = leaderboardSnapshot.snapshot;
   const leaderboard = leaderboardSnapshot.leaderboard;
@@ -69,7 +76,7 @@ export default async function DisplayHomePage() {
       value: competition?.name ?? "教学展示模式",
       hint:
         competition?.code ??
-        "若正式比赛实体尚未启用，系统会自动回退到最近一轮已完成教学数据。",
+        "未启用正式赛事时，公开端展示最近完成的教学轮次。",
     },
     {
       label: "最新公开轮次",
@@ -81,7 +88,7 @@ export default async function DisplayHomePage() {
       value: String(announcements.length),
       hint:
         announcements.length > 0
-          ? "公告内容会自动进入公开展示端，适合现场投屏和答辩汇报。"
+          ? "已发布公告会同步到公开展示端。"
           : "当前还没有公开公告。",
     },
     {
@@ -97,18 +104,21 @@ export default async function DisplayHomePage() {
   return (
     <DisplayShell
       title="酒店经营模拟比赛公开看板"
-      description="公开端不再只是静态入口页，而是一张可直接投屏的赛况叙事面板。它会自动抓取最新轮次、公开排行榜、环境信号与公告，让老师、评委或客户在几秒内看懂这套系统正在发生什么。"
+      description="集中展示已发布的赛事进度、最新轮次、排行榜、经营环境与赛事公告。"
     >
+      {!dataAvailable ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900" role="status">
+          部分实时数据暂时不可用，页面已切换到安全降级模式。请稍后刷新。
+        </div>
+      ) : null}
       <section className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
         <div className="surface-sheen motion-fade-up rounded-[2rem] border border-white/10 bg-[linear-gradient(145deg,rgba(15,23,42,0.96),rgba(30,41,59,0.92))] p-7 text-white shadow-[0_28px_90px_-48px_rgba(15,23,42,0.56)]">
           <Badge className="rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/10">
             Competition Pulse
           </Badge>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight">
-            把模拟结果转成真正可展示的赛况叙事
-          </h2>
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight">赛事进度与领先态势</h2>
           <p className="mt-4 max-w-3xl text-sm leading-8 text-slate-200">
-            现在的公开端会同时展示领跑者、轮次环境、排行榜和公告时间线，不需要进入教师后台，也能直接向外部观众讲清楚这是一套什么系统，以及当前比赛进行到了哪里。
+            公开数据与后台操作分离。观众可在此查看最新赛况，参赛与评审操作仍需登录并通过权限校验。
           </p>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -362,33 +372,6 @@ export default async function DisplayHomePage() {
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        {[
-          {
-            title: "更像正式赛事页面",
-            body: "公开端现在强调赛况播报、轮次环境和排行榜节奏，而不只是后台功能入口。",
-          },
-          {
-            title: "外部观众更容易看懂",
-            body: "即便不了解教师端和后台结构，也能快速理解系统正在进行经营模拟比赛。",
-          },
-          {
-            title: "后续可直接扩展大屏玩法",
-            body: "这套结构后续可以继续接晋级树、阶段倒计时、赞助展示位和自动解说词。",
-          },
-        ].map((item) => (
-          <div
-            key={item.title}
-            className="motion-fade-up rounded-[1.8rem] border border-slate-200/80 bg-white/95 p-6 shadow-sm"
-          >
-            <div className="flex items-center gap-2 text-sky-700">
-              <Sparkles className="size-4" />
-              <p className="text-sm font-semibold">{item.title}</p>
-            </div>
-            <p className="mt-3 text-sm leading-7 text-slate-600">{item.body}</p>
-          </div>
-        ))}
-      </section>
     </DisplayShell>
   );
 }

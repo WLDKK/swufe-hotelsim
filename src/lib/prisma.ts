@@ -1,4 +1,6 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { cache } from "react";
 import {
   getDatabaseReadRetryConfig,
   isRetryableDatabaseError,
@@ -7,7 +9,14 @@ import {
 } from "@/lib/database/retry";
 
 function createPrismaClient() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required to initialize Prisma.");
+  }
+
+  const adapter = new PrismaPg({ connectionString, maxUses: 1 });
   const baseClient = new PrismaClient({
+    adapter,
     log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
   });
   const retryConfig = getDatabaseReadRetryConfig();
@@ -56,19 +65,17 @@ function createPrismaClient() {
 
 type PrismaClientWithReadRetry = ReturnType<typeof createPrismaClient>;
 
-// A shared singleton prevents exhausting database connections during local
-// hot reloads and gives DAL, auth, API routes, and background jobs a stable
-// import path. Keep the singleton typed to the extended client shape so
-// interactive transactions and read retries stay available everywhere.
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClientWithReadRetry | undefined;
-};
+// React cache scopes the client to one server request. This is safe for both
+// long-lived Node processes and Cloudflare isolates, where reusing a database
+// client across requests can retain request-bound I/O state.
+export const getPrisma = cache(createPrismaClient);
 
-export const prisma: PrismaClientWithReadRetry =
-  globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+export const prisma = new Proxy({} as PrismaClientWithReadRetry, {
+  get(_target, property) {
+    const client = getPrisma();
+    const value = Reflect.get(client, property);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});
 
 export default prisma;

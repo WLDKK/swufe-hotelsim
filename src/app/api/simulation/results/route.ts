@@ -39,6 +39,9 @@ export async function GET(request: NextRequest) {
     }
 
     if (teamId) {
+      if (session.user.role === "JUDGE") {
+        return apiError(403, "Judges must request competition results by class and round.");
+      }
       const accessibleTeam = await getAccessibleTeamRecord(session.user, teamId);
       if (!accessibleTeam) {
         return apiError(404, "Team not found.");
@@ -79,7 +82,10 @@ export async function GET(request: NextRequest) {
 
     const targetRoundNumber =
       parsedRoundNumber ??
-      (await getLatestCompletedRoundNumberForClass(requestedClassId));
+      (await getLatestCompletedRoundNumberForClass(
+        requestedClassId,
+        session.user.role === "JUDGE" ? session.user.id : undefined
+      ));
 
     if (!targetRoundNumber) {
       return apiSuccess({
@@ -94,10 +100,11 @@ export async function GET(request: NextRequest) {
     // simulation review. The available round list is returned together with the
     // selected result set so clients can keep their round selector synchronized
     // with only completed rounds that actually have persisted output.
+    const judgeId = session.user.role === "JUDGE" ? session.user.id : undefined;
     const [leaderboard, results, availableRoundNumbers] = await Promise.all([
-      getLeaderboardForClass(requestedClassId, targetRoundNumber),
-      getResultsForClassRound(requestedClassId, targetRoundNumber),
-      listCompletedRoundNumbersForClass(requestedClassId),
+      getLeaderboardForClass(requestedClassId, targetRoundNumber, judgeId),
+      getResultsForClassRound(requestedClassId, targetRoundNumber, judgeId),
+      listCompletedRoundNumbersForClass(requestedClassId, judgeId),
     ]);
 
     return apiSuccess({

@@ -227,6 +227,29 @@ export async function listAllClasses() {
   );
 }
 
+export async function listClassesForJudge(judgeId: string) {
+  return cacheQuery(
+    ["classes", "judge", judgeId],
+    () =>
+      prisma.class.findMany({
+        where: {
+          rounds: {
+            some: {
+              competitionStage: {
+                competition: {
+                  judgeAssignments: { some: { judgeId } },
+                },
+              },
+            },
+          },
+        },
+        include: classListInclude,
+        orderBy: [{ createdAt: "desc" }],
+      }),
+    { tags: [cacheTags.classes, cacheTags.users, cacheTags.competitions] }
+  );
+}
+
 export async function listClassesForSemester(semesterId: string) {
   return cacheQuery(
     ["classes", "semester", semesterId],

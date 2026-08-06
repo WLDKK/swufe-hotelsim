@@ -142,7 +142,7 @@ export function JudgeDashboardPanel({ snapshot }: JudgeDashboardPanelProps) {
               最新公告
             </CardTitle>
             <CardDescription>
-              比赛公告已从教学域抽离为 Announcement 实体，后续可继续扩展为发布流。
+              这里汇总与你获分配赛事有关的已发布公告与阶段提醒。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

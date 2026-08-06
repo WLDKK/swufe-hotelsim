@@ -21,6 +21,7 @@ import {
   getClassById,
   getClassByJoinCode,
   listAllClasses,
+  listClassesForJudge,
   listClassesForSemester,
   listClassesForTeacher,
 } from "@/lib/dal/classes";
@@ -129,7 +130,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (session.user.role === "JUDGE") {
-      const classes = await listAllClasses();
+      const classes = await listClassesForJudge(session.user.id);
       return apiSuccess({ classes });
     }
 

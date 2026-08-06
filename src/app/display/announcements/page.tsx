@@ -10,7 +10,7 @@ export default async function DisplayAnnouncementsPage() {
   return (
     <DisplayShell
       title="公告时间线"
-      description="公告已经独立成正式实体。这个页面专门面向公开展示，适合在比赛现场、答辩汇报或对外演示时投屏使用，让通知、赛制说明和阶段提示都能按照时间线被更清楚地看到。"
+      description="按时间顺序展示已发布的赛制说明、阶段提醒与赛事通知。"
     >
       <section className="grid gap-4">
         {announcements.length > 0 ? (

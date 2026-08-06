@@ -70,6 +70,8 @@ model User {
   teamMembers      TeamMember[]
   createdSemesters Semester[]   @relation("SemesterCreator")
   judgeScores      JudgeScore[] @relation("JudgeUserScores")
+  judgeAssignments CompetitionJudgeAssignment[] @relation("CompetitionJudge")
+  createdJudgeAssignments CompetitionJudgeAssignment[] @relation("JudgeAssignmentCreator")
   createdCompetitions Competition[] @relation("CompetitionCreator")
   createdAnnouncements Announcement[] @relation("AnnouncementCreator")
 
@@ -535,11 +537,27 @@ model Competition {
   stages           CompetitionStage[]
   announcements    Announcement[]
   advancements     Advancement[]
+  judgeAssignments CompetitionJudgeAssignment[]
 
   @@index([status])
   @@index([legacySemesterId])
   @@index([rulesetId])
   @@map("competitions")
+}
+
+model CompetitionJudgeAssignment {
+  id            String      @id @default(cuid())
+  competitionId String
+  judgeId       String
+  createdById   String?
+  createdAt     DateTime    @default(now())
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  judge         User        @relation("CompetitionJudge", fields: [judgeId], references: [id], onDelete: Cascade)
+  createdBy     User?       @relation("JudgeAssignmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([competitionId, judgeId])
+  @@index([judgeId, createdAt])
+  @@map("competition_judge_assignments")
 }
 
 model CompetitionStage {

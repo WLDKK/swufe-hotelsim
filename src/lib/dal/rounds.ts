@@ -263,6 +263,18 @@ export async function updateRoundStatus(
   });
 }
 
+export async function claimPendingRound(
+  roundId: string,
+  snapshot: Prisma.RoundUncheckedUpdateManyInput
+) {
+  const claimed = await prisma.round.updateMany({
+    where: { id: roundId, status: RoundStatus.PENDING },
+    data: { ...snapshot, status: RoundStatus.PROCESSING },
+  });
+
+  return claimed.count === 1;
+}
+
 export async function updateRoundEnvironment(input: {
   roundId: string;
   seasonFactor?: number;
@@ -270,6 +282,7 @@ export async function updateRoundEnvironment(input: {
   eventFactor?: number;
   eventDescription?: string;
   randomSeed?: string | null;
+  competitionStageId?: string | null;
 }) {
   const data: Prisma.RoundUncheckedUpdateInput = {};
 
@@ -291,6 +304,10 @@ export async function updateRoundEnvironment(input: {
 
   if (input.randomSeed !== undefined) {
     data.randomSeed = input.randomSeed;
+  }
+
+  if (input.competitionStageId !== undefined) {
+    data.competitionStageId = input.competitionStageId;
   }
 
   return prisma.round.update({

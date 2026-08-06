@@ -3,6 +3,7 @@ import { requireRoleSession } from "@/lib/auth/guards";
 
 const adminNavItems = [
   { href: "/admin/dashboard", label: "Dashboard" },
+  { href: "/admin/competitions", label: "Competition" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/semesters", label: "Semesters" },
   { href: "/admin/classes", label: "Classes" },
