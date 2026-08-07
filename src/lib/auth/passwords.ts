@@ -8,6 +8,7 @@ const PASSWORD_KEY_BITS = 256;
 
 type ParsedPbkdf2Hash = {
   iterations: number;
+  peppered: boolean;
   salt: Uint8Array;
   derivedKey: Uint8Array;
 };
@@ -28,7 +29,7 @@ function fromBase64Url(value: string) {
 }
 
 function parsePbkdf2Hash(passwordHash: string): ParsedPbkdf2Hash | null {
-  const match = /^\$pbkdf2-sha256\$i=(\d+)\$([A-Za-z0-9_-]+)\$([A-Za-z0-9_-]+)$/.exec(
+  const match = /^\$pbkdf2-sha256\$i=(\d+)(?:\$p=([01]))?\$([A-Za-z0-9_-]+)\$([A-Za-z0-9_-]+)$/.exec(
     passwordHash
   );
   if (!match) {
@@ -36,8 +37,9 @@ function parsePbkdf2Hash(passwordHash: string): ParsedPbkdf2Hash | null {
   }
 
   const iterations = Number(match[1]);
-  const salt = fromBase64Url(match[2]);
-  const derivedKey = fromBase64Url(match[3]);
+  const peppered = match[2] === "1";
+  const salt = fromBase64Url(match[3]);
+  const derivedKey = fromBase64Url(match[4]);
   if (
     !Number.isInteger(iterations) ||
     iterations < 100_000 ||
@@ -48,19 +50,52 @@ function parsePbkdf2Hash(passwordHash: string): ParsedPbkdf2Hash | null {
     return null;
   }
 
-  return { iterations, salt, derivedKey };
+  return { iterations, peppered, salt, derivedKey };
+}
+
+async function buildPasswordMaterial(
+  plainTextPassword: string,
+  peppered: boolean
+) {
+  const encodedPassword = new TextEncoder().encode(plainTextPassword);
+  if (!peppered) {
+    return encodedPassword;
+  }
+
+  const pepper = getSecurityConfig().passwordPepper;
+  if (!pepper) {
+    throw new Error(
+      "PASSWORD_PEPPER is required to verify this password hash."
+    );
+  }
+
+  const pepperKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(pepper),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  return new Uint8Array(
+    await crypto.subtle.sign("HMAC", pepperKey, encodedPassword)
+  );
 }
 
 async function derivePbkdf2Key(
   plainTextPassword: string,
   salt: Uint8Array,
-  iterations: number
+  iterations: number,
+  peppered: boolean
 ) {
   const saltBuffer = new ArrayBuffer(salt.byteLength);
   new Uint8Array(saltBuffer).set(salt);
+  const passwordMaterial = await buildPasswordMaterial(
+    plainTextPassword,
+    peppered
+  );
   const passwordKey = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(plainTextPassword),
+    passwordMaterial,
     "PBKDF2",
     false,
     ["deriveBits"]
@@ -121,14 +156,17 @@ export function getPasswordHashIterations() {
 
 export async function hashPassword(plainTextPassword: string) {
   const salt = crypto.getRandomValues(new Uint8Array(PASSWORD_SALT_BYTES));
-  const iterations = getPasswordHashIterations();
+  const config = getSecurityConfig();
+  const iterations = config.passwordPbkdf2Iterations;
+  const peppered = Boolean(config.passwordPepper);
   const derivedKey = await derivePbkdf2Key(
     plainTextPassword,
     salt,
-    iterations
+    iterations,
+    peppered
   );
 
-  return `${PASSWORD_HASH_PREFIX}i=${iterations}$${toBase64Url(salt)}$${toBase64Url(derivedKey)}`;
+  return `${PASSWORD_HASH_PREFIX}i=${iterations}$p=${peppered ? 1 : 0}$${toBase64Url(salt)}$${toBase64Url(derivedKey)}`;
 }
 
 export async function verifyPassword(
@@ -140,7 +178,8 @@ export async function verifyPassword(
     const candidate = await derivePbkdf2Key(
       plainTextPassword,
       pbkdf2Hash.salt,
-      pbkdf2Hash.iterations
+      pbkdf2Hash.iterations,
+      pbkdf2Hash.peppered
     );
     return compareDerivedKeys(candidate, pbkdf2Hash.derivedKey);
   }
@@ -155,7 +194,11 @@ export async function verifyPassword(
 export function needsPasswordHashUpgrade(passwordHash: string) {
   const pbkdf2Hash = parsePbkdf2Hash(passwordHash);
   if (pbkdf2Hash) {
-    return pbkdf2Hash.iterations < getPasswordHashIterations();
+    const config = getSecurityConfig();
+    return (
+      pbkdf2Hash.iterations < config.passwordPbkdf2Iterations ||
+      pbkdf2Hash.peppered !== Boolean(config.passwordPepper)
+    );
   }
 
   // Every legacy bcrypt hash should move to the native PBKDF2 format after

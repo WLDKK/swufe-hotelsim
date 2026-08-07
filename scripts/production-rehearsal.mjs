@@ -13,7 +13,7 @@ const JUDGE_COUNT = 3;
 const BASE_URL = (process.env.REHEARSAL_BASE_URL ?? "").replace(/\/$/, "");
 const RUN_ID = process.env.GITHUB_RUN_ID ?? `local-${Date.now()}`;
 const REQUEST_TIMEOUT_MS = 120_000;
-const PASSWORD_HASH_ITERATIONS = 600_000;
+const PASSWORD_HASH_ITERATIONS = 100_000;
 
 if (process.env.REHEARSAL_CONFIRM !== CONFIRMATION) {
   throw new Error(`Set REHEARSAL_CONFIRM=${CONFIRMATION} to run the production rehearsal.`);
@@ -369,7 +369,7 @@ async function hashBootstrapPassword(password) {
       256
     )
   );
-  return `$pbkdf2-sha256$i=${PASSWORD_HASH_ITERATIONS}$${Buffer.from(salt).toString("base64url")}$${Buffer.from(derivedKey).toString("base64url")}`;
+  return `$pbkdf2-sha256$i=${PASSWORD_HASH_ITERATIONS}$p=0$${Buffer.from(salt).toString("base64url")}$${Buffer.from(derivedKey).toString("base64url")}`;
 }
 
 async function createTemporaryAdmin(password) {

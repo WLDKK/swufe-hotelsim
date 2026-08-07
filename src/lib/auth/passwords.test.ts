@@ -12,12 +12,13 @@ describe("password hashing", () => {
   });
 
   it("creates salted PBKDF2 hashes and verifies them", async () => {
-    vi.stubEnv("PASSWORD_PBKDF2_ITERATIONS", "600000");
+    vi.stubEnv("PASSWORD_PBKDF2_ITERATIONS", "100000");
+    vi.stubEnv("PASSWORD_PEPPER", "");
 
     const firstHash = await hashPassword("correct horse battery staple");
     const secondHash = await hashPassword("correct horse battery staple");
 
-    expect(firstHash).toMatch(/^\$pbkdf2-sha256\$i=600000\$/);
+    expect(firstHash).toMatch(/^\$pbkdf2-sha256\$i=100000\$p=0\$/);
     expect(secondHash).not.toBe(firstHash);
     await expect(
       verifyPassword("correct horse battery staple", firstHash)
@@ -26,6 +27,28 @@ describe("password hashing", () => {
       false
     );
     expect(needsPasswordHashUpgrade(firstHash)).toBe(false);
+  });
+
+  it("pre-hashes with a server-side pepper when configured", async () => {
+    vi.stubEnv("PASSWORD_PBKDF2_ITERATIONS", "100000");
+    vi.stubEnv(
+      "PASSWORD_PEPPER",
+      "test-only-pepper-with-at-least-thirty-two-characters"
+    );
+
+    const passwordHash = await hashPassword("peppered password");
+
+    expect(passwordHash).toMatch(/^\$pbkdf2-sha256\$i=100000\$p=1\$/);
+    await expect(
+      verifyPassword("peppered password", passwordHash)
+    ).resolves.toBe(true);
+    expect(needsPasswordHashUpgrade(passwordHash)).toBe(false);
+
+    vi.stubEnv("PASSWORD_PEPPER", "");
+    await expect(
+      verifyPassword("peppered password", passwordHash)
+    ).rejects.toThrow("PASSWORD_PEPPER is required");
+    expect(needsPasswordHashUpgrade(passwordHash)).toBe(true);
   });
 
   it("accepts a legacy bcrypt hash and marks it for migration", async () => {
