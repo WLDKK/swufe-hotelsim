@@ -53,7 +53,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         // Credentials auth stays intentionally narrow here:
         // 1. find the user by email
-        // 2. verify the bcrypt hash
+        // 2. verify the current PBKDF2 hash or a legacy bcrypt hash
         // 3. expose only the fields needed for session enrichment
         const isValidPassword = await verifyPassword(
           parsed.data.password,

@@ -41,6 +41,12 @@ export function getSecurityConfig() {
       10,
       14
     ),
+    passwordPbkdf2Iterations: parseInteger(
+      process.env.PASSWORD_PBKDF2_ITERATIONS,
+      600_000,
+      600_000,
+      2_000_000
+    ),
     emailVerificationTtlHours: parseInteger(
       process.env.AUTH_EMAIL_VERIFICATION_TTL_HOURS,
       24,

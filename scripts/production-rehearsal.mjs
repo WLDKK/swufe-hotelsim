@@ -1,6 +1,5 @@
 import { appendFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { hash } from "bcryptjs";
 import { PrismaClient, UserRole } from "@prisma/client";
 
 const CONFIRMATION = "RUN_200_PRODUCTION";
@@ -14,6 +13,7 @@ const JUDGE_COUNT = 3;
 const BASE_URL = (process.env.REHEARSAL_BASE_URL ?? "").replace(/\/$/, "");
 const RUN_ID = process.env.GITHUB_RUN_ID ?? `local-${Date.now()}`;
 const REQUEST_TIMEOUT_MS = 120_000;
+const PASSWORD_HASH_ITERATIONS = 600_000;
 
 if (process.env.REHEARSAL_CONFIRM !== CONFIRMATION) {
   throw new Error(`Set REHEARSAL_CONFIRM=${CONFIRMATION} to run the production rehearsal.`);
@@ -328,9 +328,33 @@ async function resetOwnedNamespace() {
   });
 }
 
+async function hashBootstrapPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const passwordKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const derivedKey = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        hash: "SHA-256",
+        salt,
+        iterations: PASSWORD_HASH_ITERATIONS,
+      },
+      passwordKey,
+      256
+    )
+  );
+  return `$pbkdf2-sha256$i=${PASSWORD_HASH_ITERATIONS}$${Buffer.from(salt).toString("base64url")}$${Buffer.from(derivedKey).toString("base64url")}`;
+}
+
 async function createTemporaryAdmin(password) {
   const email = `${RUN_PREFIX}-admin@hotelsim.example`;
-  const passwordHash = await hash(password, 12);
+  const passwordHash = await hashBootstrapPassword(password);
   const user = await prisma.user.create({
     data: {
       name: "生产演练临时管理员",
