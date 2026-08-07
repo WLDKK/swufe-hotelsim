@@ -13,7 +13,7 @@ const JUDGE_COUNT = 3;
 const BASE_URL = (process.env.REHEARSAL_BASE_URL ?? "").replace(/\/$/, "");
 const RUN_ID = process.env.GITHUB_RUN_ID ?? `local-${Date.now()}`;
 const REQUEST_TIMEOUT_MS = 120_000;
-const PASSWORD_HASH_ITERATIONS = 100_000;
+const PASSWORD_HASH_ITERATIONS = 50_000;
 
 if (process.env.REHEARSAL_CONFIRM !== CONFIRMATION) {
   throw new Error(`Set REHEARSAL_CONFIRM=${CONFIRMATION} to run the production rehearsal.`);
@@ -413,7 +413,10 @@ async function runRehearsal(adminPassword) {
   const accountPassword = `${randomBytes(24).toString("base64url")}Aa1!`;
   const students = await phase("Create 200 student accounts", async () => {
     const identities = Array.from({ length: PARTICIPANT_COUNT }, (_, index) => studentIdentity(index));
-    return mapLimit(identities, 4, async (identity, index) => {
+    // Password derivation is intentionally throttled separately from the
+    // high-concurrency business flows below. Account provisioning is an
+    // administrative setup task, not a participant-facing hot path.
+    return mapLimit(identities, 2, async (identity, index) => {
       const user = await createUser(adminClient, accountPassword, identity);
       if ((index + 1) % 25 === 0) log(`Created ${index + 1}/${PARTICIPANT_COUNT} student accounts.`);
       return { ...user, password: accountPassword };

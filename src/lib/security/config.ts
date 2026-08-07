@@ -44,8 +44,8 @@ export function getSecurityConfig() {
     ),
     passwordPbkdf2Iterations: parseInteger(
       process.env.PASSWORD_PBKDF2_ITERATIONS,
-      100_000,
-      100_000,
+      50_000,
+      50_000,
       100_000
     ),
     passwordPepper,

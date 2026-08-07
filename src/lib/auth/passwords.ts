@@ -42,7 +42,7 @@ function parsePbkdf2Hash(passwordHash: string): ParsedPbkdf2Hash | null {
   const derivedKey = fromBase64Url(match[4]);
   if (
     !Number.isInteger(iterations) ||
-    iterations < 100_000 ||
+    iterations < 50_000 ||
     iterations > 2_000_000 ||
     salt.byteLength < PASSWORD_SALT_BYTES ||
     derivedKey.byteLength !== PASSWORD_KEY_BITS / 8
