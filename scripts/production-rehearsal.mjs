@@ -197,20 +197,26 @@ class HttpSession {
       callbackUrl: `${BASE_URL}/`,
       redirectTo: `${BASE_URL}/`,
     });
-    await this.request("/api/auth/callback/credentials", {
+    const callbackResponse = await this.request("/api/auth/callback/credentials", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: form,
       expectedStatuses: [200, 302, 303],
       metricLabel: "auth.credentials",
     });
+    const callbackTarget =
+      callbackResponse.headers.get("location") ?? callbackResponse.payload?.url ?? "";
+    assert(
+      !String(callbackTarget).includes("error="),
+      `Authentication callback rejected ${email}: ${callbackTarget}`
+    );
 
     const sessionResponse = await this.request("/api/auth/session", {
       metricLabel: "auth.session",
     });
     assert(
       sessionResponse.payload?.user?.email === email,
-      `Authentication session mismatch for ${email}.`
+      `Authentication session mismatch for ${email}; callback=${callbackResponse.status}:${callbackTarget || "none"}; session=${sessionResponse.payload?.user?.email ?? "anonymous"}.`
     );
     return sessionResponse.payload;
   }

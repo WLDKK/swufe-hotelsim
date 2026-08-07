@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { compare } from "bcryptjs";
 import { getSecurityConfig } from "@/lib/security/config";
 
@@ -11,6 +10,13 @@ type ParsedPbkdf2Hash = {
   iterations: number;
   salt: Uint8Array;
   derivedKey: Uint8Array;
+};
+
+type RuntimeSubtleCrypto = SubtleCrypto & {
+  timingSafeEqual?: (
+    left: ArrayBuffer | ArrayBufferView,
+    right: ArrayBuffer | ArrayBufferView
+  ) => boolean;
 };
 
 function toBase64Url(value: Uint8Array) {
@@ -72,6 +78,26 @@ async function derivePbkdf2Key(
   return new Uint8Array(derivedBits);
 }
 
+function compareDerivedKeys(left: Uint8Array, right: Uint8Array) {
+  if (left.byteLength !== right.byteLength) {
+    return false;
+  }
+
+  const subtle = crypto.subtle as RuntimeSubtleCrypto;
+  if (typeof subtle.timingSafeEqual === "function") {
+    return subtle.timingSafeEqual(left, right);
+  }
+
+  // Standard Node Web Crypto does not currently expose Cloudflare's
+  // timingSafeEqual extension. Keep tests and local development portable with
+  // a fixed-length, non-short-circuiting comparison of the derived key bytes.
+  let difference = 0;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
+}
+
 // Keep bcrypt parsing isolated to the legacy compatibility path. New hashes
 // use the runtime-native Web Crypto implementation below so Cloudflare does
 // not spend an invocation's JavaScript CPU budget inside bcryptjs.
@@ -116,7 +142,7 @@ export async function verifyPassword(
       pbkdf2Hash.salt,
       pbkdf2Hash.iterations
     );
-    return timingSafeEqual(candidate, pbkdf2Hash.derivedKey);
+    return compareDerivedKeys(candidate, pbkdf2Hash.derivedKey);
   }
 
   // Existing bcrypt hashes remain valid and are upgraded after a successful
