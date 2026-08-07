@@ -71,3 +71,12 @@ jobs:
           path: .open-next
           include-hidden-files: true
           retention-days: 7
+
+      - name: Run labeled 200-person production rehearsal
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'production-rehearsal')
+        env:
+          DATABASE_URL: ${{ secrets.REHEARSAL_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.REHEARSAL_DATABASE_URL }}
+          REHEARSAL_BASE_URL: https://swufe-hotelsim.1310205058.workers.dev
+          REHEARSAL_CONFIRM: RUN_200_PRODUCTION
+        run: node scripts/production-rehearsal.mjs
