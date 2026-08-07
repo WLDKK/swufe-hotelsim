@@ -206,11 +206,25 @@ class HttpSession {
     });
     const callbackTarget =
       callbackResponse.headers.get("location") ?? callbackResponse.payload?.url ?? "";
-    assert(
-      !String(callbackTarget).includes("error="),
-      `Authentication callback rejected ${email}: ${callbackTarget}`
-    );
-
+    if (String(callbackTarget).includes("error=")) {
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+      const diagnostic = user
+        ? await prisma.auditLog.findFirst({
+            where: {
+              userId: user.id,
+              action: "auth.password.verify.error",
+            },
+            select: { details: true, createdAt: true },
+            orderBy: { createdAt: "desc" },
+          })
+        : null;
+      throw new Error(
+        `Authentication callback rejected ${email}: ${callbackTarget}; diagnostic=${JSON.stringify(diagnostic)}`
+      );
+    }
     const sessionResponse = await this.request("/api/auth/session", {
       metricLabel: "auth.session",
     });
