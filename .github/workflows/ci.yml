@@ -78,6 +78,8 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.REHEARSAL_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.REHEARSAL_DATABASE_URL }}
+          PASSWORD_PEPPER: ${{ secrets.PASSWORD_PEPPER }}
+          REHEARSAL_AUTH_SECRET: ${{ secrets.REHEARSAL_AUTH_SECRET }}
           REHEARSAL_BASE_URL: https://swufe-hotelsim.1310205058.workers.dev
           REHEARSAL_CONFIRM: RUN_200_PRODUCTION
         run: node scripts/production-rehearsal.mjs

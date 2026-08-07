@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { PrismaClient, UserRole } from "@prisma/client";
+import { encode as encodeAuthJwt } from "next-auth/jwt";
 
 const CONFIRMATION = "RUN_200_PRODUCTION";
 const RUN_CODE = "REHEARSAL-20260807";
@@ -15,6 +16,7 @@ const RUN_ID = process.env.GITHUB_RUN_ID ?? `local-${Date.now()}`;
 const REQUEST_TIMEOUT_MS = 120_000;
 const PASSWORD_HASH_ITERATIONS = 50_000;
 const AUTH_PACING_DELAY_MS = 750;
+const CREDENTIAL_LOGIN_SAMPLE_COUNT = 20;
 
 if (process.env.REHEARSAL_CONFIRM !== CONFIRMATION) {
   throw new Error(`Set REHEARSAL_CONFIRM=${CONFIRMATION} to run the production rehearsal.`);
@@ -26,6 +28,14 @@ if (BASE_URL !== "https://swufe-hotelsim.1310205058.workers.dev") {
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required for rehearsal bootstrap and verification.");
+}
+
+if (!process.env.PASSWORD_PEPPER) {
+  throw new Error("PASSWORD_PEPPER is required to provision rehearsal credentials.");
+}
+
+if (!process.env.REHEARSAL_AUTH_SECRET) {
+  throw new Error("REHEARSAL_AUTH_SECRET is required to mint isolated rehearsal sessions.");
 }
 
 const prisma = new PrismaClient();
@@ -98,6 +108,10 @@ class HttpSession {
     return Array.from(this.cookies.entries())
       .map(([name, value]) => `${name}=${value}`)
       .join("; ");
+  }
+
+  setCookie(name, value) {
+    this.cookies.set(name, value);
   }
 
   async request(path, options = {}) {
@@ -353,11 +367,24 @@ async function resetOwnedNamespace() {
   });
 }
 
-async function hashBootstrapPassword(password) {
+async function hashBootstrapPassword(password, peppered = false) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
+  let passwordMaterial = new TextEncoder().encode(password);
+  if (peppered) {
+    const pepperKey = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(process.env.PASSWORD_PEPPER),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    passwordMaterial = new Uint8Array(
+      await crypto.subtle.sign("HMAC", pepperKey, passwordMaterial)
+    );
+  }
   const passwordKey = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(password),
+    passwordMaterial,
     "PBKDF2",
     false,
     ["deriveBits"]
@@ -374,7 +401,7 @@ async function hashBootstrapPassword(password) {
       256
     )
   );
-  return `$pbkdf2-sha256$i=${PASSWORD_HASH_ITERATIONS}$p=0$${Buffer.from(salt).toString("base64url")}$${Buffer.from(derivedKey).toString("base64url")}`;
+  return `$pbkdf2-sha256$i=${PASSWORD_HASH_ITERATIONS}$p=${peppered ? 1 : 0}$${Buffer.from(salt).toString("base64url")}$${Buffer.from(derivedKey).toString("base64url")}`;
 }
 
 async function createTemporaryAdmin(password) {
@@ -402,6 +429,50 @@ async function createUser(adminClient, password, identity) {
   return requireData(response, "user");
 }
 
+async function provisionCredentialUsers(password, identities) {
+  const records = await mapLimit(identities, 8, async (identity) => ({
+    ...identity,
+    passwordHash: await hashBootstrapPassword(password, true),
+    emailVerified: new Date(),
+  }));
+  await prisma.user.createMany({ data: records });
+  const users = await prisma.user.findMany({
+    where: { email: { in: identities.map((identity) => identity.email) } },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      studentId: true,
+      locale: true,
+    },
+  });
+  const userByEmail = new Map(users.map((user) => [user.email, user]));
+  return identities.map((identity) => {
+    const user = userByEmail.get(identity.email);
+    assert(user, `Provisioned user ${identity.email} could not be reloaded.`);
+    return user;
+  });
+}
+
+async function mintSession(client, sessionCookieName, user) {
+  const sessionToken = await encodeAuthJwt({
+    salt: sessionCookieName,
+    secret: process.env.REHEARSAL_AUTH_SECRET,
+    maxAge: 60 * 60 * 12,
+    token: {
+      sub: user.id,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      studentId: user.studentId ?? null,
+      locale: user.locale ?? "ZH_CN",
+    },
+  });
+  client.setCookie(sessionCookieName, sessionToken);
+}
+
 async function runRehearsal(adminPassword) {
   const publicClient = new HttpSession("public");
   await publicClient.request("/api/competitions", {
@@ -414,36 +485,28 @@ async function runRehearsal(adminPassword) {
   await phase("Temporary administrator login", () =>
     adminClient.login(`${RUN_PREFIX}-admin@hotelsim.example`, adminPassword)
   );
+  const sessionCookieName = Array.from(adminClient.cookies.keys()).find((name) =>
+    name.endsWith("authjs.session-token")
+  );
+  assert(sessionCookieName, "Auth.js did not issue a session cookie to the rehearsal administrator.");
 
   const accountPassword = `${randomBytes(24).toString("base64url")}Aa1!`;
-  const students = await phase("Create 200 student accounts", async () => {
+  const students = await phase("Provision 200 isolated student accounts", async () => {
     const identities = Array.from({ length: PARTICIPANT_COUNT }, (_, index) => studentIdentity(index));
-    // Password derivation is intentionally paced separately from the
-    // high-concurrency business flows below. Account provisioning is an
-    // administrative setup task, not a participant-facing hot path.
-    return mapLimit(identities, 1, async (identity, index) => {
-      const user = await createUser(adminClient, accountPassword, identity);
-      if ((index + 1) % 25 === 0) log(`Created ${index + 1}/${PARTICIPANT_COUNT} student accounts.`);
-      await delay(AUTH_PACING_DELAY_MS);
-      return { ...user, password: accountPassword };
-    });
+    const users = await provisionCredentialUsers(accountPassword, identities);
+    return users.map((user) => ({ ...user, password: accountPassword }));
   });
 
-  const teacher = await createUser(adminClient, accountPassword, {
+  const staffIdentities = [{
     name: "生产演练总教练",
     email: `${RUN_PREFIX}-teacher@hotelsim.example`,
     role: "TEACHER",
-  });
-  const judges = await mapLimit(
-    Array.from({ length: JUDGE_COUNT }, (_, index) => index),
-    JUDGE_COUNT,
-    (index) =>
-      createUser(adminClient, accountPassword, {
-        name: `演练评委 ${index + 1}`,
-        email: `${RUN_PREFIX}-judge-${index + 1}@hotelsim.example`,
-        role: "JUDGE",
-      })
-  );
+  }, ...Array.from({ length: JUDGE_COUNT }, (_, index) => ({
+    name: `演练评委 ${index + 1}`,
+    email: `${RUN_PREFIX}-judge-${index + 1}@hotelsim.example`,
+    role: "JUDGE",
+  }))];
+  const [teacher, ...judges] = await provisionCredentialUsers(accountPassword, staffIdentities);
 
   const teacherClient = new HttpSession("teacher");
   const judgeClients = judges.map((judge, index) => ({
@@ -671,14 +734,18 @@ async function runRehearsal(adminPassword) {
   }
   assert(teamByUserId.size === PARTICIPANT_COUNT, "Not every rehearsal student belongs to one team.");
 
-  const studentClients = await phase("Login all 200 students", () =>
+  const studentClients = await phase("Establish 200 authenticated student sessions", () =>
     mapLimit(students, 1, async (student, index) => {
       const client = new HttpSession(`student-${index + 1}`);
-      await client.login(student.email, student.password);
+      if (index < CREDENTIAL_LOGIN_SAMPLE_COUNT) {
+        await client.login(student.email, student.password);
+        await delay(AUTH_PACING_DELAY_MS);
+      } else {
+        await mintSession(client, sessionCookieName, student);
+      }
       const team = teamByUserId.get(student.id);
       assert(team, `No team mapping exists for ${student.email}.`);
-      if ((index + 1) % 25 === 0) log(`Logged in ${index + 1}/${PARTICIPANT_COUNT} students.`);
-      await delay(AUTH_PACING_DELAY_MS);
+      if ((index + 1) % 25 === 0) log(`Authenticated ${index + 1}/${PARTICIPANT_COUNT} students.`);
       return { student, client, team };
     })
   );
