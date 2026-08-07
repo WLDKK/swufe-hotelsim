@@ -14,6 +14,7 @@ const BASE_URL = (process.env.REHEARSAL_BASE_URL ?? "").replace(/\/$/, "");
 const RUN_ID = process.env.GITHUB_RUN_ID ?? `local-${Date.now()}`;
 const REQUEST_TIMEOUT_MS = 120_000;
 const PASSWORD_HASH_ITERATIONS = 50_000;
+const AUTH_PACING_DELAY_MS = 750;
 
 if (process.env.REHEARSAL_CONFIRM !== CONFIRMATION) {
   throw new Error(`Set REHEARSAL_CONFIRM=${CONFIRMATION} to run the production rehearsal.`);
@@ -39,6 +40,10 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function percentile(values, percentileValue) {
@@ -413,12 +418,13 @@ async function runRehearsal(adminPassword) {
   const accountPassword = `${randomBytes(24).toString("base64url")}Aa1!`;
   const students = await phase("Create 200 student accounts", async () => {
     const identities = Array.from({ length: PARTICIPANT_COUNT }, (_, index) => studentIdentity(index));
-    // Password derivation is intentionally throttled separately from the
+    // Password derivation is intentionally paced separately from the
     // high-concurrency business flows below. Account provisioning is an
     // administrative setup task, not a participant-facing hot path.
-    return mapLimit(identities, 2, async (identity, index) => {
+    return mapLimit(identities, 1, async (identity, index) => {
       const user = await createUser(adminClient, accountPassword, identity);
       if ((index + 1) % 25 === 0) log(`Created ${index + 1}/${PARTICIPANT_COUNT} student accounts.`);
+      await delay(AUTH_PACING_DELAY_MS);
       return { ...user, password: accountPassword };
     });
   });
@@ -445,10 +451,12 @@ async function runRehearsal(adminPassword) {
     client: new HttpSession(`judge-${index + 1}`),
   }));
   await phase("Teacher and judge login", async () => {
-    await Promise.all([
-      teacherClient.login(teacher.email, accountPassword),
-      ...judgeClients.map(({ judge, client }) => client.login(judge.email, accountPassword)),
-    ]);
+    await teacherClient.login(teacher.email, accountPassword);
+    await delay(AUTH_PACING_DELAY_MS);
+    for (const { judge, client } of judgeClients) {
+      await client.login(judge.email, accountPassword);
+      await delay(AUTH_PACING_DELAY_MS);
+    }
   });
 
   const semesterResponse = await adminClient.request("/api/semesters", {
@@ -664,11 +672,13 @@ async function runRehearsal(adminPassword) {
   assert(teamByUserId.size === PARTICIPANT_COUNT, "Not every rehearsal student belongs to one team.");
 
   const studentClients = await phase("Login all 200 students", () =>
-    mapLimit(students, 12, async (student, index) => {
+    mapLimit(students, 1, async (student, index) => {
       const client = new HttpSession(`student-${index + 1}`);
       await client.login(student.email, student.password);
       const team = teamByUserId.get(student.id);
       assert(team, `No team mapping exists for ${student.email}.`);
+      if ((index + 1) % 25 === 0) log(`Logged in ${index + 1}/${PARTICIPANT_COUNT} students.`);
+      await delay(AUTH_PACING_DELAY_MS);
       return { student, client, team };
     })
   );
