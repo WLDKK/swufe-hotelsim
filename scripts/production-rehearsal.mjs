@@ -56,6 +56,38 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function escapeCsvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function buildRehearsalRosterCsv(students) {
+  const headers = [
+    "team_name",
+    "hotel_name",
+    "team_color",
+    "student_email",
+    "student_id",
+    "student_name",
+    "team_role",
+  ];
+  const colors = ["#8B1A1A", "#0F4C81", "#B7791F", "#2563EB", "#047857", "#7C3AED", "#BE123C", "#334155"];
+  const rows = students.map((student, index) => {
+    const teamIndex = Math.floor(index / TEAM_SIZE);
+    return [
+      `实战经营 ${String(teamIndex + 1).padStart(2, "0")} 组`,
+      `西财云栖酒店 ${String(teamIndex + 1).padStart(2, "0")} 号`,
+      colors[teamIndex % colors.length],
+      student.email,
+      student.studentId ?? "",
+      student.name ?? "",
+      index % TEAM_SIZE === 0 ? "LEADER" : "MEMBER",
+    ];
+  });
+  return [headers, ...rows]
+    .map((row) => row.map(escapeCsvCell).join(","))
+    .join("\n");
+}
+
 function percentile(values, percentileValue) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((left, right) => left - right);
@@ -419,16 +451,6 @@ async function createTemporaryAdmin(password) {
   return { id: user.id, email };
 }
 
-async function createUser(adminClient, password, identity) {
-  const response = await adminClient.request("/api/users", {
-    method: "POST",
-    json: { ...identity, password },
-    expectedStatuses: [201],
-    metricLabel: "admin.user.create",
-  });
-  return requireData(response, "user");
-}
-
 async function provisionCredentialUsers(password, identities) {
   const records = await mapLimit(identities, 8, async (identity) => ({
     ...identity,
@@ -654,28 +676,20 @@ async function runRehearsal(adminPassword) {
     metricLabel: "announcement.create",
   });
 
-  let teams = await phase("Create 40 five-person teams", () =>
-    mapLimit(
-      Array.from({ length: TEAM_COUNT }, (_, index) => index),
-      6,
-      async (teamIndex) => {
-        const members = students.slice(teamIndex * TEAM_SIZE, (teamIndex + 1) * TEAM_SIZE);
-        const response = await teacherClient.request("/api/teams", {
-          method: "POST",
-          json: {
-            classId: classRecord.id,
-            name: `实战经营 ${String(teamIndex + 1).padStart(2, "0")} 组`,
-            hotelName: `西财云栖酒店 ${String(teamIndex + 1).padStart(2, "0")} 号`,
-            color: ["#8B1A1A", "#0F4C81", "#B7791F", "#2563EB", "#047857", "#7C3AED", "#BE123C", "#334155"][teamIndex % 8],
-            leaderUserId: members[0].id,
-            memberUserIds: members.slice(1).map((member) => member.id),
-          },
-          expectedStatuses: [201],
-          metricLabel: "team.create",
-        });
-        return requireData(response, "team");
-      }
-    )
+  const rehearsalRosterCsv = buildRehearsalRosterCsv(students);
+  const rosterValidation = await adminClient.request("/api/roster/csv", {
+    method: "POST",
+    json: { classId: classRecord.id, csvText: rehearsalRosterCsv, mode: "validate" },
+    metricLabel: "roster.validate",
+  });
+  assert(rosterValidation.payload?.data?.summary?.members === PARTICIPANT_COUNT, "Roster validation did not resolve 200 members.");
+  await phase("Create 40 five-person teams through roster import", () =>
+    adminClient.request("/api/roster/csv", {
+      method: "POST",
+      json: { classId: classRecord.id, csvText: rehearsalRosterCsv, mode: "apply" },
+      timeoutMs: 180_000,
+      metricLabel: "roster.apply",
+    })
   );
 
   const rosterExport = await adminClient.request(`/api/roster/csv?classId=${classRecord.id}`, {
@@ -683,22 +697,11 @@ async function runRehearsal(adminPassword) {
     metricLabel: "roster.export",
   });
   assert(rosterExport.text.includes("student_email"), "Roster CSV export is missing its header.");
-  const rosterValidation = await adminClient.request("/api/roster/csv", {
-    method: "POST",
-    json: { classId: classRecord.id, csvText: rosterExport.text, mode: "validate" },
-    metricLabel: "roster.validate",
-  });
-  assert(rosterValidation.payload?.data?.summary?.members === PARTICIPANT_COUNT, "Roster validation did not resolve 200 members.");
-  await adminClient.request("/api/roster/csv", {
-    method: "POST",
-    json: { classId: classRecord.id, csvText: rosterExport.text, mode: "apply" },
-    metricLabel: "roster.apply",
-  });
 
   const teamsResponse = await teacherClient.request(`/api/teams?classId=${classRecord.id}`, {
     metricLabel: "teams.list",
   });
-  teams = requireData(teamsResponse, "teams");
+  const teams = requireData(teamsResponse, "teams");
   assert(teams.length === TEAM_COUNT, `Expected ${TEAM_COUNT} teams after roster round-trip.`);
 
   const firstTeam = teams[0];
