@@ -110,12 +110,27 @@ export async function listResultsForTeam(teamId: string) {
   );
 }
 
-export async function listCompletedRoundNumbersForClass(classId: string) {
+function judgeRoundWhere(judgeId?: string): Prisma.RoundResultWhereInput {
+  return judgeId
+    ? {
+        round: {
+          competitionStage: {
+            competition: {
+              judgeAssignments: { some: { judgeId } },
+            },
+          },
+        },
+      }
+    : {};
+}
+
+export async function listCompletedRoundNumbersForClass(classId: string, judgeId?: string) {
   const rounds = await cacheQuery(
-    ["results", "class", classId, "completed-rounds"],
+    ["results", "class", classId, "completed-rounds", judgeId ?? "all"],
     () =>
       prisma.roundResult.findMany({
         where: {
+          ...judgeRoundWhere(judgeId),
           team: {
             classId,
           },
@@ -136,12 +151,13 @@ export async function listCompletedRoundNumbersForClass(classId: string) {
   return rounds.map((round) => round.roundNumber);
 }
 
-export async function getLatestCompletedRoundNumberForClass(classId: string) {
+export async function getLatestCompletedRoundNumberForClass(classId: string, judgeId?: string) {
   const latestResult = await cacheQuery(
-    ["results", "class", classId, "latest-round"],
+    ["results", "class", classId, "latest-round", judgeId ?? "all"],
     () =>
       prisma.roundResult.findFirst({
         where: {
+          ...judgeRoundWhere(judgeId),
           team: {
             classId,
           },
@@ -159,12 +175,13 @@ export async function getLatestCompletedRoundNumberForClass(classId: string) {
   return latestResult?.roundNumber ?? null;
 }
 
-export async function getResultsForClassRound(classId: string, roundNumber: number) {
+export async function getResultsForClassRound(classId: string, roundNumber: number, judgeId?: string) {
   return cacheQuery(
-    ["results", "class", classId, "round", roundNumber],
+    ["results", "class", classId, "round", roundNumber, judgeId ?? "all"],
     () =>
       prisma.roundResult.findMany({
         where: {
+          ...judgeRoundWhere(judgeId),
           roundNumber,
           team: {
             classId,
@@ -200,17 +217,18 @@ export async function updateRoundResultTeacherFeedback(
   });
 }
 
-export async function getLeaderboardForClass(classId: string, roundNumber?: number) {
+export async function getLeaderboardForClass(classId: string, roundNumber?: number, judgeId?: string) {
   const targetRound =
     roundNumber ??
-    (await getLatestCompletedRoundNumberForClass(classId)) ??
+    (await getLatestCompletedRoundNumberForClass(classId, judgeId)) ??
     0;
 
   return cacheQuery(
-    ["results", "class", classId, "leaderboard", targetRound],
+    ["results", "class", classId, "leaderboard", targetRound, judgeId ?? "all"],
     () =>
       prisma.roundResult.findMany({
         where: {
+          ...judgeRoundWhere(judgeId),
           roundNumber: targetRound,
           team: {
             classId,

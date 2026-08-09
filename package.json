@@ -14,12 +14,20 @@
     "url": "https://github.com/WLDKK/swufe-hotelsim/issues"
   },
   "packageManager": "pnpm@10.18.0",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:relocate": "node scripts/relocate-open-next-artifact.mjs",
+    "cf:preview": "opennextjs-cloudflare preview",
+    "cf:deploy": "opennextjs-cloudflare deploy",
+    "cf:typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "start": "next start",
     "postinstall": "prisma generate",
-    "lint": "next lint",
+    "lint": "eslint src --max-warnings=0",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -27,7 +35,8 @@
     "test:e2e:headed": "playwright test --headed",
     "typecheck": "tsc --noEmit",
     "sim:balance": "tsx scripts/balance-test.ts",
-    "release:check": "pnpm audit && pnpm db:generate && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm sim:balance",
+    "sim:production-rehearsal": "node scripts/production-rehearsal.mjs",
+    "release:check": "pnpm audit && pnpm db:generate && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm sim:balance && pnpm cf:build",
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -39,6 +48,7 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
+    "@prisma/adapter-pg": "^6.19.3",
     "@prisma/client": "^6.19.3",
     "@radix-ui/react-slot": "^1.2.4",
     "@tanstack/react-query": "^5.95.2",
@@ -50,6 +60,7 @@
     "next": "15.5.22",
     "next-auth": "5.0.0-beta.32",
     "nodemailer": "^9.0.3",
+    "pg": "^8.22.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "^3.8.1",
@@ -58,12 +69,14 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.2",
     "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.20.4",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
@@ -78,20 +91,26 @@
     "tsx": "^4.23.5",
     "typescript": "^5",
     "vite": "^8.2.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.119.0"
   },
   "pnpm": {
     "overrides": {
-      "brace-expansion@1": "1.1.17",
-      "brace-expansion@5": "5.0.8",
+      "brace-expansion@1": "1.1.18",
+      "brace-expansion@5": "5.0.9",
       "defu": "6.1.5",
       "esbuild": "0.28.1",
       "js-yaml": "4.3.0",
       "postcss": "8.5.25",
       "sharp": "0.35.0",
       "tar": "7.5.21",
-      "undici": "7.28.0",
+      "undici": "7.29.0",
       "vite": "8.2.0"
+    },
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "nodemailer": "9"
+      }
     },
     "onlyBuiltDependencies": [
       "@prisma/client",

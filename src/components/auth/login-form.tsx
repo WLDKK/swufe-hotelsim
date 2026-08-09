@@ -5,7 +5,6 @@ import { useFormState } from "react-dom";
 import { loginAction, type AuthFormState } from "@/app/(auth)/actions";
 import { AuthFormShell } from "@/components/auth/auth-form-shell";
 import { AuthSubmitButton } from "@/components/auth/auth-submit-button";
-import { PUBLIC_DEMO_ACCOUNTS, PUBLIC_DEMO_PASSWORD } from "@/lib/demo-accounts";
 import { Input } from "@/components/ui/input";
 
 type LoginFormProps = {
@@ -56,7 +55,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
             </label>
             <Link
               href="/forgot-password"
-              className="text-sm font-medium text-sky-200 underline-offset-4 hover:underline"
+            className="text-sm font-semibold text-swufe-red underline-offset-4 hover:underline"
             >
               忘记密码
             </Link>
@@ -83,35 +82,6 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
         <AuthSubmitButton idleLabel="登录" pendingLabel="登录中..." />
       </form>
 
-      <div className="rounded-[1.5rem] border border-white/10 bg-white/6 p-5 text-sm text-slate-300">
-        <p className="font-medium text-white">体验账号说明</p>
-        <p className="mt-2 leading-7">
-          当前演示环境已清空旧注册与旧操作记录，下列账号可直接登录体验。
-        </p>
-        <div className="mt-3 space-y-2">
-          {PUBLIC_DEMO_ACCOUNTS.map((account) => (
-            <div
-              key={account.email}
-              className="rounded-2xl border border-white/10 bg-white/6 px-4 py-3"
-            >
-              <p className="font-medium text-white">
-                {account.label}：{account.email}
-              </p>
-              <p className="mt-1 text-xs leading-6 text-slate-400">{account.hint}</p>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 rounded-2xl border border-sky-300/20 bg-sky-300/10 px-4 py-3 text-sky-100">
-          {PUBLIC_DEMO_PASSWORD ? (
-            <p className="font-medium">统一体验密码：{PUBLIC_DEMO_PASSWORD}</p>
-          ) : (
-            <p className="font-medium">当前部署未启用公开体验密码。</p>
-          )}
-          <p className="mt-1 text-xs leading-6 text-sky-100/80">
-            最高权限管理员账号仍保留，但不在页面公开显示；如需后台操作，可由当前维护人单独提供。
-          </p>
-        </div>
-      </div>
     </AuthFormShell>
   );
 }

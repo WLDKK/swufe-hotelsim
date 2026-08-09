@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { recordAuditLog } from "@/lib/audit";
 import { revalidateRoundReadModels } from "@/lib/cache-invalidation";
-import { getAccessibleClassRecord } from "@/lib/api/access";
+import { getAccessibleClassRecord, getAccessibleRoundRecord } from "@/lib/api/access";
 import { getOptionalSearchParam } from "@/lib/api/requests";
 import {
   apiError,
@@ -29,11 +29,16 @@ async function getAccessibleResultForJudgeLikeUser(input: {
     return null;
   }
 
-  if (input.requestUser.role === "ADMIN" || input.requestUser.role === "JUDGE") {
-    // Keep the first judge iteration broad until Competition / Stage /
-    // assignment entities land. The route is still authenticated, audited, and
-    // isolated from student traffic.
+  if (input.requestUser.role === "ADMIN") {
     return result;
+  }
+
+  if (input.requestUser.role === "JUDGE") {
+    const accessibleRound = await getAccessibleRoundRecord(
+      input.requestUser,
+      result.round.id
+    );
+    return accessibleRound ? result : null;
   }
 
   const accessibleClass = await getAccessibleClassRecord(

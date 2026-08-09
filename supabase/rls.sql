@@ -8,6 +8,7 @@ create or replace function public.app_user_id()
 returns text
 language sql
 stable
+set search_path = ''
 as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '');
 $$;
@@ -124,6 +125,36 @@ as $$
   );
 $$;
 
+create or replace function public.is_judge_for_competition(competition_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.competition_judge_assignments assignment
+    where assignment."competitionId" = competition_id
+      and assignment."judgeId" = public.app_user_id()
+  );
+$$;
+
+create or replace function public.is_teacher_for_competition(competition_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.competitions competition
+    where competition.id = competition_id
+      and competition."createdById" = public.app_user_id()
+  );
+$$;
+
 alter table public.users enable row level security;
 alter table public.accounts enable row level security;
 alter table public.sessions enable row level security;
@@ -142,8 +173,15 @@ alter table public.competitions enable row level security;
 alter table public.competition_stages enable row level security;
 alter table public.advancements enable row level security;
 alter table public.announcements enable row level security;
+alter table public.competition_judge_assignments enable row level security;
 alter table public.system_configs enable row level security;
 alter table public.audit_logs enable row level security;
+
+-- The application reaches Postgres through server-side Prisma. Do not expose
+-- private application tables to unauthenticated Supabase Data API callers;
+-- authenticated access remains constrained by the policies below.
+revoke all privileges on all tables in schema public from anon;
+alter default privileges in schema public revoke all privileges on tables from anon;
 
 -- PostgreSQL grants EXECUTE on functions to PUBLIC by default. Restrict the
 -- policy helpers to authenticated requests and trusted server-side access.
@@ -156,6 +194,18 @@ revoke execute on function public.team_class_id(text) from public, anon;
 revoke execute on function public.is_teacher_for_team(text) from public, anon;
 revoke execute on function public.is_member_of_team(text) from public, anon;
 revoke execute on function public.is_member_of_class(text) from public, anon;
+revoke execute on function public.is_judge_for_competition(text) from public, anon;
+revoke execute on function public.is_teacher_for_competition(text) from public, anon;
+
+-- Supabase projects may include this SECURITY DEFINER trigger helper. It must
+-- never be callable as an unauthenticated Data API RPC.
+do $$
+begin
+  if to_regprocedure('public.rls_auto_enable()') is not null then
+    execute 'revoke execute on function public.rls_auto_enable() from public, anon';
+  end if;
+end
+$$;
 
 grant execute on function public.app_user_id() to authenticated, service_role;
 grant execute on function public.app_user_role() to authenticated, service_role;
@@ -166,6 +216,8 @@ grant execute on function public.team_class_id(text) to authenticated, service_r
 grant execute on function public.is_teacher_for_team(text) to authenticated, service_role;
 grant execute on function public.is_member_of_team(text) to authenticated, service_role;
 grant execute on function public.is_member_of_class(text) to authenticated, service_role;
+grant execute on function public.is_judge_for_competition(text) to authenticated, service_role;
+grant execute on function public.is_teacher_for_competition(text) to authenticated, service_role;
 
 drop policy if exists users_select_self_or_admin on public.users;
 create policy users_select_self_or_admin
@@ -438,3 +490,119 @@ on public.audit_logs
 for all
 using (public.is_admin())
 with check (public.is_admin());
+
+-- Competition operations are server-driven today, but explicit policies keep
+-- future Data API access least-privileged instead of silently relying on the
+-- absence of grants.
+drop policy if exists rulesets_read_authenticated on public.rulesets;
+create policy rulesets_read_authenticated
+on public.rulesets for select
+using (public.app_user_id() is not null);
+
+drop policy if exists rulesets_admin_manage on public.rulesets;
+create policy rulesets_admin_manage
+on public.rulesets for all
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists competitions_visible_to_staff on public.competitions;
+create policy competitions_visible_to_staff
+on public.competitions for select
+using (
+  public.is_teacher_for_competition(id)
+  or public.is_judge_for_competition(id)
+  or public.is_admin()
+);
+
+drop policy if exists competitions_manageable_by_owner_admin on public.competitions;
+create policy competitions_manageable_by_owner_admin
+on public.competitions for all
+using (public.is_teacher_for_competition(id) or public.is_admin())
+with check ("createdById" = public.app_user_id() or public.is_admin());
+
+drop policy if exists competition_stages_visible_to_staff on public.competition_stages;
+create policy competition_stages_visible_to_staff
+on public.competition_stages for select
+using (
+  public.is_teacher_for_competition("competitionId")
+  or public.is_judge_for_competition("competitionId")
+  or public.is_admin()
+);
+
+drop policy if exists competition_stages_manageable_by_owner_admin on public.competition_stages;
+create policy competition_stages_manageable_by_owner_admin
+on public.competition_stages for all
+using (
+  public.is_teacher_for_competition("competitionId")
+  or public.is_admin()
+)
+with check (
+  public.is_teacher_for_competition("competitionId")
+  or public.is_admin()
+);
+
+drop policy if exists competition_judge_assignments_visible_to_judge_admin on public.competition_judge_assignments;
+create policy competition_judge_assignments_visible_to_judge_admin
+on public.competition_judge_assignments for select
+using ("judgeId" = public.app_user_id() or public.is_admin());
+
+drop policy if exists competition_judge_assignments_admin_manage on public.competition_judge_assignments;
+create policy competition_judge_assignments_admin_manage
+on public.competition_judge_assignments for all
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists judge_scores_visible_to_owner_admin on public.judge_scores;
+create policy judge_scores_visible_to_owner_admin
+on public.judge_scores for select
+using ("judgeId" = public.app_user_id() or public.is_admin());
+
+drop policy if exists judge_scores_manageable_by_owner_admin on public.judge_scores;
+create policy judge_scores_manageable_by_owner_admin
+on public.judge_scores for all
+using ("judgeId" = public.app_user_id() or public.is_admin())
+with check ("judgeId" = public.app_user_id() or public.is_admin());
+
+drop policy if exists advancements_visible_to_staff on public.advancements;
+create policy advancements_visible_to_staff
+on public.advancements for select
+using (
+  public.is_teacher_for_competition("competitionId")
+  or public.is_judge_for_competition("competitionId")
+  or public.is_member_of_team("teamId")
+  or public.is_admin()
+);
+
+drop policy if exists advancements_manageable_by_owner_admin on public.advancements;
+create policy advancements_manageable_by_owner_admin
+on public.advancements for all
+using (
+  public.is_teacher_for_competition("competitionId")
+  or public.is_admin()
+)
+with check (
+  public.is_teacher_for_competition("competitionId")
+  or public.is_admin()
+);
+
+drop policy if exists announcements_read_published_or_staff on public.announcements;
+create policy announcements_read_published_or_staff
+on public.announcements for select
+using (
+  "isPublished"
+  or public.is_teacher_for_competition("competitionId")
+  or public.is_judge_for_competition("competitionId")
+  or public.is_admin()
+);
+
+drop policy if exists announcements_manageable_by_owner_admin on public.announcements;
+create policy announcements_manageable_by_owner_admin
+on public.announcements for all
+using (
+  public.is_teacher_for_competition("competitionId")
+  or public.is_admin()
+)
+with check (
+  public.is_teacher_for_competition("competitionId")
+  or public.is_admin()
+);

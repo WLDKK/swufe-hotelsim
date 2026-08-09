@@ -306,6 +306,11 @@ export const competitionCreateSchema = z
     }
   });
 
+export const competitionStatusUpdateSchema = z.object({
+  competitionId: trimmedString("Competition ID"),
+  status: z.enum(["DRAFT", "READY", "ACTIVE", "COMPLETED", "ARCHIVED"]),
+});
+
 export const competitionStageCreateSchema = z.object({
   competitionId: trimmedString("Competition ID"),
   name: trimmedString("Stage name").max(160, "Stage name is too long."),
@@ -342,6 +347,11 @@ export const announcementCreateSchema = z.object({
   isPinned: z.boolean().optional(),
   isPublished: z.boolean().optional(),
   publishedAt: optionalIsoDate,
+});
+
+export const judgeAssignmentMutationSchema = z.object({
+  competitionId: trimmedString("Competition ID"),
+  judgeId: trimmedString("Judge ID"),
 });
 
 const simulationParameterPatchSchema = z
@@ -381,12 +391,14 @@ export const roundCreateSchema = z.object({
   classId: trimmedString("Class ID"),
   roundNumber: z.coerce.number().int().min(1).optional(),
   deadline: optionalIsoDate,
+  competitionStageId: optionalTrimmedString,
   ...roundEnvironmentShape,
 });
 
 export const roundUpdateSchema = z
   .object({
     roundId: trimmedString("Round ID"),
+    competitionStageId: optionalNullableTrimmedString,
     ...roundEnvironmentShape,
   })
   .refine(
@@ -395,7 +407,8 @@ export const roundUpdateSchema = z
       value.economyFactor !== undefined ||
       value.eventFactor !== undefined ||
       value.eventDescription !== undefined ||
-      value.randomSeed !== undefined,
+      value.randomSeed !== undefined ||
+      value.competitionStageId !== undefined,
     {
       message: "Provide at least one round environment field to update.",
     }

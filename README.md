@@ -16,7 +16,7 @@ The project was initially used for internal teaching and practice, with approxim
 - Auth.js credentials flow with RBAC, verification, password reset, and CAPTCHA hooks
 - Audit logs, observability, alert state, and external notification integrations
 - Unit, integration, balance, and Playwright end-to-end test coverage
-- Vercel deployment configuration and GitHub Actions release gates
+- Cloudflare Workers deployment through OpenNext and GitHub Actions release gates
 - Chinese-first interface with an extensible localization layer
 
 ## Architecture
@@ -28,7 +28,7 @@ The project was initially used for internal teaching and practice, with approxim
 | Data access | Prisma ORM and PostgreSQL |
 | Managed database | Supabase, with source-controlled RLS policies |
 | Testing | Vitest, Testing Library, Playwright |
-| Delivery | GitHub Actions and Vercel |
+| Delivery | GitHub Actions, OpenNext, and Cloudflare Workers |
 
 The main reuse boundaries are:
 
@@ -44,7 +44,7 @@ The main reuse boundaries are:
 
 ### Prerequisites
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - pnpm 10.18.0
 - A disposable PostgreSQL or Supabase development database
 

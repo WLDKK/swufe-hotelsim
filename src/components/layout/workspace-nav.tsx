@@ -37,7 +37,7 @@ export function WorkspaceNav({
   return (
     <nav
       aria-label="Workspace navigation"
-      className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1"
+      className="flex gap-2 overflow-x-auto pb-1 lg:grid lg:overflow-visible lg:pb-0"
     >
       {items.map((item) => {
         const active = isActivePath(pathname, item);
@@ -47,7 +47,7 @@ export function WorkspaceNav({
             key={item.href}
             href={item.href}
             className={cn(
-              "group flex min-h-[3.75rem] min-w-0 items-center justify-between rounded-2xl border px-4 py-3 text-sm font-medium transition-all",
+              "group flex min-h-11 min-w-max items-center justify-between rounded-lg border px-3 py-2 text-sm font-semibold transition-colors lg:min-w-0",
               active ? activeClassName : inactiveClassName
             )}
             aria-current={active ? "page" : undefined}

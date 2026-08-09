@@ -12,6 +12,62 @@ import {
   getUserForCredentials,
   updateUserPasswordHash,
 } from "./src/lib/dal/users";
+import prisma from "./src/lib/prisma";
+
+function describePasswordHashFormat(passwordHash: string) {
+  if (passwordHash.startsWith("$pbkdf2-sha256$")) {
+    return "pbkdf2-sha256";
+  }
+  if (/^\$2[aby]\$/.test(passwordHash)) {
+    return "bcrypt";
+  }
+  return "unknown";
+}
+
+async function recordPasswordVerificationError(
+  user: { id: string; passwordHash: string },
+  error: unknown
+) {
+  const errorName = error instanceof Error ? error.name : "UnknownError";
+  const errorMessage =
+    error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
+  const details = {
+    errorName,
+    errorMessage,
+    hashFormat: describePasswordHashFormat(user.passwordHash),
+  };
+
+  console.error(
+    JSON.stringify({
+      event: "auth.password.verify.error",
+      userId: user.id,
+      ...details,
+    })
+  );
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "auth.password.verify.error",
+        entityType: "user",
+        entityId: user.id,
+        details,
+      },
+    });
+  } catch (auditError) {
+    console.error(
+      JSON.stringify({
+        event: "auth.password.verify.audit-error",
+        userId: user.id,
+        error:
+          auditError instanceof Error
+            ? auditError.message.slice(0, 500)
+            : String(auditError).slice(0, 500),
+      })
+    );
+  }
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -53,12 +109,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         // Credentials auth stays intentionally narrow here:
         // 1. find the user by email
-        // 2. verify the bcrypt hash
+        // 2. verify the current PBKDF2 hash or a legacy bcrypt hash
         // 3. expose only the fields needed for session enrichment
-        const isValidPassword = await verifyPassword(
-          parsed.data.password,
-          user.passwordHash
-        );
+        let isValidPassword = false;
+        try {
+          isValidPassword = await verifyPassword(
+            parsed.data.password,
+            user.passwordHash
+          );
+        } catch (error) {
+          await recordPasswordVerificationError(
+            { id: user.id, passwordHash: user.passwordHash },
+            error
+          );
+          return null;
+        }
 
         if (!isValidPassword) {
           return null;

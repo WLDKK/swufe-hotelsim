@@ -1,5 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# CI build artifacts
+/.ci-artifacts/
+
 # dependencies
 /node_modules
 /.pnp
@@ -12,6 +15,9 @@
 # next.js
 /.next/
 /out/
+/.open-next/
+/.wrangler/
+/cloudflare-env.d.ts
 
 # production
 /build
@@ -28,6 +34,7 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+.dev.vars
 
 # vercel
 .vercel

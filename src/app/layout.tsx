@@ -61,12 +61,12 @@ export default function RootLayout({
   return (
     // Root layout stays intentionally light: fonts, theme tokens, and shared
     // providers belong here so later auth and dashboard route groups inherit them.
-    <html lang="zh-CN" className="dark font-sans">
+    <html lang="zh-CN" className="font-sans">
       <body
         className={cn(
           geistSans.variable,
           geistMono.variable,
-          "min-h-screen bg-background text-foreground antialiased selection:bg-sky-400/20 selection:text-white"
+          "min-h-screen bg-background text-foreground antialiased"
         )}
       >
         <AppProviders>{children}</AppProviders>

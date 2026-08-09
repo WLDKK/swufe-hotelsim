@@ -14,7 +14,7 @@ import {
   mapRouteError,
 } from "@/lib/api/responses";
 import { requireApiRoles, requireApiSession } from "@/lib/api/session";
-import { createRound, getRoundByClassAndNumber } from "@/lib/dal/rounds";
+import { claimPendingRound, createRound, getRoundByClassAndNumber } from "@/lib/dal/rounds";
 import { getActiveRuleset } from "@/lib/dal/rulesets";
 import prisma from "@/lib/prisma";
 import {
@@ -303,13 +303,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await prisma.round.update({
-      where: { id: currentRound.id },
-      data: {
-        status: RoundStatus.PROCESSING,
-        ...currentRoundSnapshot,
-      },
-    });
+    const claimedRound = await claimPendingRound(currentRound.id, currentRoundSnapshot);
+
+    if (!claimedRound) {
+      activeRoundId = null;
+      return apiError(
+        409,
+        "This round is already being processed. Refresh before trying again."
+      );
+    }
 
     const processed = runRoundSimulation({
       round: {

@@ -81,6 +81,7 @@ export const cacheTags = {
   classTeams: (classId: string) => `class-teams:${classId}`,
   competition: (competitionId: string) => `competition:${competitionId}`,
   competitions: "competitions",
+  judgeAssignments: "judge-assignments",
   leaderboard: (classId: string) => `leaderboard:${classId}`,
   observability: "observability",
   rounds: "rounds",

@@ -29,6 +29,7 @@ export function getSecurityConfig() {
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() || null;
   const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY?.trim() || null;
   const captchaRequested = parseBoolean(process.env.AUTH_ENABLE_CAPTCHA, false);
+  const passwordPepper = process.env.PASSWORD_PEPPER?.trim() || null;
 
   return {
     requireEmailVerification: parseBoolean(
@@ -41,6 +42,13 @@ export function getSecurityConfig() {
       10,
       14
     ),
+    passwordPbkdf2Iterations: parseInteger(
+      process.env.PASSWORD_PBKDF2_ITERATIONS,
+      50_000,
+      50_000,
+      100_000
+    ),
+    passwordPepper,
     emailVerificationTtlHours: parseInteger(
       process.env.AUTH_EMAIL_VERIFICATION_TTL_HOURS,
       24,

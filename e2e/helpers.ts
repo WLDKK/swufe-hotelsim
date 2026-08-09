@@ -113,8 +113,8 @@ export async function getSelectOptionValue(
         .poll(
           async () =>
             select.evaluate((element, partial) => {
-              const selectElement = element as HTMLSelectElement;
-              const match = Array.from(selectElement.options).find((option) =>
+              if (!(element instanceof HTMLSelectElement)) return null;
+              const match = Array.from(element.options).find((option) =>
                 option.textContent?.includes(String(partial))
               );
 
@@ -128,8 +128,8 @@ export async function getSelectOptionValue(
         .not.toBeNull();
 
       const value = await select.evaluate((element, partial) => {
-        const selectElement = element as HTMLSelectElement;
-        const match = Array.from(selectElement.options).find((option) =>
+        if (!(element instanceof HTMLSelectElement)) return null;
+        const match = Array.from(element.options).find((option) =>
           option.textContent?.includes(String(partial))
         );
 
@@ -170,8 +170,8 @@ export async function getFirstNonPlaceholderOptionValue(
     .poll(
       async () =>
         select.evaluate((element) => {
-          const selectElement = element as HTMLSelectElement;
-          const match = Array.from(selectElement.options).find(
+          if (!(element instanceof HTMLSelectElement)) return null;
+          const match = Array.from(element.options).find(
             (option) => option.value.trim().length > 0 && !option.disabled
           );
 
@@ -185,8 +185,8 @@ export async function getFirstNonPlaceholderOptionValue(
     .not.toBeNull();
 
   const value = await select.evaluate((element) => {
-    const selectElement = element as HTMLSelectElement;
-    const match = Array.from(selectElement.options).find(
+    if (!(element instanceof HTMLSelectElement)) return null;
+    const match = Array.from(element.options).find(
       (option) => option.value.trim().length > 0 && !option.disabled
     );
 

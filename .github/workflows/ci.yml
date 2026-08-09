@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches:
       - main
@@ -19,17 +20,17 @@ jobs:
       AUTH_SECRET: ci-secret
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.18.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install
@@ -52,3 +53,33 @@ jobs:
 
       - name: Simulation balance check
         run: pnpm sim:balance
+
+      - name: Cloudflare Workers build
+        run: pnpm cf:build
+
+      - name: Make Cloudflare Workers artifact relocatable
+        run: pnpm cf:relocate
+
+      - name: Validate Cloudflare Workers package
+        env:
+          OPEN_NEXT_DEPLOY: "true"
+        run: pnpm exec wrangler deploy --dry-run --outdir .wrangler/dry-run
+
+      - name: Upload Cloudflare Workers artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloudflare-worker-${{ github.sha }}
+          path: .open-next
+          include-hidden-files: true
+          retention-days: 7
+
+      - name: Run labeled 200-person production rehearsal
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'production-rehearsal')
+        env:
+          DATABASE_URL: ${{ secrets.REHEARSAL_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.REHEARSAL_DATABASE_URL }}
+          PASSWORD_PEPPER: ${{ secrets.PASSWORD_PEPPER }}
+          REHEARSAL_AUTH_SECRET: ${{ secrets.REHEARSAL_AUTH_SECRET }}
+          REHEARSAL_BASE_URL: https://swufe-hotelsim.1310205058.workers.dev
+          REHEARSAL_CONFIRM: RUN_200_PRODUCTION
+        run: node scripts/production-rehearsal.mjs

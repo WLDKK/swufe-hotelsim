@@ -241,9 +241,9 @@ export function JudgeScoringPanel({ currentUserId }: JudgeScoringPanelProps) {
     <div className="grid gap-6">
       <Card className="border-sky-200/70 bg-white/95">
         <CardHeader>
-          <CardTitle className="text-xl">裁判评分入口</CardTitle>
+          <CardTitle className="text-xl">赛事评分</CardTitle>
           <CardDescription>
-            这里通过独立 JudgeScore API 写入评分，同时保留教师端原有评分链路和兼容字段，便于后续正式比赛继续扩展。
+            选择已分配赛事的班级、轮次与参赛队，查看系统经营结果并提交评审分数与意见。
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
@@ -377,7 +377,7 @@ export function JudgeScoringPanel({ currentUserId }: JudgeScoringPanelProps) {
           <CardHeader>
             <CardTitle className="text-xl">结果详情与裁判评分</CardTitle>
             <CardDescription>
-              explanationLog 和 systemScoreBreakdown 已写入结果记录，这里先提供基础可视化骨架，便于后续继续深化解释卡片。
+              系统分解与经营解释来自本轮固化数据，可用于核对评分依据与异常指标。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
