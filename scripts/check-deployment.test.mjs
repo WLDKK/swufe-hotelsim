@@ -17,7 +17,9 @@ function mockFetch({ callbackOrigin = "https://hotel.example", status = 200, mis
 }
 
 test("accepts healthy public pages and same-origin auth endpoints", async () => {
-  assert.equal((await checkDeployment("https://hotel.example", mockFetch())).length, 4);
+  assert.deepEqual(await checkDeployment("https://hotel.example", mockFetch()), [
+    "/: OK", "/login: OK", "/api/auth/providers: OK", "/api/auth/session: OK",
+  ]);
 });
 test("rejects an auth callback pointing to a different website", async () => {
   await assert.rejects(checkDeployment("https://hotel.example", mockFetch({ callbackOrigin: "https://portfolio.example" })), /callbackUrl points to/);
@@ -30,4 +32,14 @@ test("rejects a missing credentials provider", async () => {
 });
 test("rejects an unrelated website that returns HTTP 200", async () => {
   await assert.rejects(checkDeployment("https://hotel.example", mockFetch({ wrongPage: true })), /not a HotelSim page/);
+});
+test("reports HTML masquerading as a providers response", async () => {
+  const fetcher = mockFetch();
+  await assert.rejects(checkDeployment("https://hotel.example", (url) => url.pathname === "/api/auth/providers"
+    ? new Response("<html>Error</html>") : fetcher(url)), /\/api\/auth\/providers: expected JSON/);
+});
+test("reports a missing callback URL", async () => {
+  const fetcher = mockFetch();
+  await assert.rejects(checkDeployment("https://hotel.example", (url) => url.pathname === "/api/auth/providers"
+    ? Response.json({ credentials: { type: "credentials", signinUrl: "https://hotel.example/signin" } }) : fetcher(url)), /callbackUrl is missing/);
 });

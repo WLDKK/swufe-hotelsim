@@ -1,6 +1,6 @@
 # Check a HotelSim deployment
 
-Use Node.js 22 or later. No dependency installation, account, or database credentials are required:
+Use Node.js 20 or later (the dedicated checker workflow uses Node.js 22). No dependency installation, account, or database credentials are required:
 
 ```sh
 node --test scripts/check-deployment.test.mjs
