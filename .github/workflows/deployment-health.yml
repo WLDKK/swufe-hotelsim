@@ -1,0 +1,45 @@
+name: Deployment health checker
+
+on:
+  pull_request:
+    paths:
+      - scripts/check-deployment*.mjs
+      - docs/deployment-health.md
+      - .github/workflows/deployment-health.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/check-deployment*.mjs
+      - docs/deployment-health.md
+      - .github/workflows/deployment-health.yml
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: Canonical hotel origin to check (read-only)
+        type: choice
+        required: true
+        default: https://swufe-hotelsim.1310205058.workers.dev
+        options:
+          - https://swufe-hotelsim.1310205058.workers.dev
+          - https://swufe-hotelsim.vercel.app
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Test the deployment checker
+        run: node --test scripts/check-deployment.test.mjs
+      - name: Check the selected deployment
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          HOTEL_ORIGIN: ${{ inputs.origin }}
+        run: node scripts/check-deployment.mjs "$HOTEL_ORIGIN"
